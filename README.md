@@ -12,9 +12,7 @@
 
 **The most feature-complete Google Workspace MCP server**, now with Remote OAuth2.1 multi-user support and 1-click Claude installation.
 
-
 ###### Support for all free Google accounts (Gmail, Docs, Drive etc) & Google Workspace plans (Starter, Standard, Plus, Enterprise, Non Profit) with expanded app options like Chat & Spaces. <br/> Interested in a private cloud instance? [That can be arranged.](https://workspacemcp.com/workspace-mcp-cloud)
-
 
 </div>
 
@@ -29,7 +27,6 @@
 
 ---
 
-
 **See it in action:**
 <div align="center">
   <video width="400" src="https://github.com/user-attachments/assets/a342ebb4-1319-4060-a974-39d202329710"></video>
@@ -38,6 +35,7 @@
 ---
 
 ### A quick plug for AI-Enhanced Docs
+
 <details>
 <summary>◆ <b>But why?</b></summary>
 
@@ -61,6 +59,7 @@ A production-ready MCP server that integrates all major Google Workspace service
 <td width="50%" valign="top">
 
 **<span style="color:#72898f">@</span> Gmail** • **<span style="color:#72898f">≡</span> Drive** • **<span style="color:#72898f">⧖</span> Calendar** **<span style="color:#72898f">≡</span> Docs**
+
 - Complete Gmail management, end to end coverage
 - Full calendar management with advanced features
 - File operations with Office format support
@@ -70,6 +69,7 @@ A production-ready MCP server that integrates all major Google Workspace service
 ---
 
 **<span style="color:#72898f">≡</span> Forms** • **<span style="color:#72898f">@</span> Chat** • **<span style="color:#72898f">≡</span> Sheets** • **<span style="color:#72898f">≡</span> Slides**
+
 - Form creation, publish settings & response management
 - Space management & messaging capabilities
 - Spreadsheet operations with flexible cell management
@@ -79,6 +79,7 @@ A production-ready MCP server that integrates all major Google Workspace service
 <td width="50%" valign="top">
 
 **<span style="color:#72898f">⊠</span> Authentication & Security**
+
 - Advanced OAuth 2.0 & OAuth 2.1 support
 - Automatic token refresh & session management
 - Transport-aware callback handling
@@ -88,6 +89,7 @@ A production-ready MCP server that integrates all major Google Workspace service
 ---
 
 **<span style="color:#72898f">✓</span> Tasks** • **<span style="color:#72898f">◆</span> Custom Search** • **<span style="color:#72898f">↻</span> Transport Support**
+
 - Full support for all MCP Transports
 - Task & task list management with hierarchy
 - Programmable Search Engine (PSE) integration
@@ -107,24 +109,29 @@ A production-ready MCP server that integrates all major Google Workspace service
 <tr><td width="33%" valign="top">
 
 **⊠ Credentials**
+
 ```bash
 export GOOGLE_OAUTH_CLIENT_ID="..."
 export GOOGLE_OAUTH_CLIENT_SECRET="..."
 ```
+
 [Full setup →](#-credential-configuration)
 
 </td><td width="33%" valign="top">
 
 **▶ Launch Commands**
+
 ```bash
 uvx workspace-mcp --tool-tier core
 uv run main.py --tools gmail drive
 ```
+
 [More options →](#start-the-server)
 
 </td><td width="34%" valign="top">
 
 **★ Tool Tiers**
+
 - ● `core` - Essential tools
 - ◐ `extended` - Core + extras
 - ○ `complete` - Everything
@@ -147,6 +154,7 @@ uv run main.py --tools gmail drive
 > Desktop Extensions (`.dxt`) bundle the server, dependencies, and manifest so users go from download → working MCP in **one click** – no terminal, no JSON editing, no version conflicts.
 
 #### Required Configuration
+
 <details>
 <summary>◆ <b>Environment Variables</b> <sub><sup>← Click to configure in Claude Desktop</sup></sub></summary>
 
@@ -154,6 +162,7 @@ uv run main.py --tools gmail drive
 <tr><td width="50%" valign="top">
 
 **Required**
+
 | Variable | Purpose |
 |----------|---------|
 | `GOOGLE_OAUTH_CLIENT_ID` | OAuth client ID from Google Cloud |
@@ -163,6 +172,7 @@ uv run main.py --tools gmail drive
 </td><td width="50%" valign="top">
 
 **Optional**
+
 | Variable | Purpose |
 |----------|---------|
 | `USER_GOOGLE_EMAIL` | Default email for single-user auth |
@@ -202,30 +212,35 @@ Claude Desktop stores these securely in the OS keychain; set them once in the ex
 <td width="33%" align="center">
 
 **1. Create Project**
+
 ```text
 console.cloud.google.com
 
 → Create new project
 → Note project name
 ```
+
 <sub>[Open Console →](https://console.cloud.google.com/)</sub>
 
 </td>
 <td width="33%" align="center">
 
 **2. OAuth Credentials**
+
 ```text
 APIs & Services → Credentials
 → Create Credentials
 → OAuth Client ID
 → Desktop Application
 ```
+
 <sub>Download & save credentials</sub>
 
 </td>
 <td width="34%" align="center">
 
 **3. Enable APIs**
+
 ```text
 APIs & Services → Library
 
@@ -234,6 +249,7 @@ Calendar, Drive, Gmail,
 Docs, Sheets, Slides,
 Forms, Tasks, Chat, Search
 ```
+
 <sub>See quick links below</sub>
 
 </td>
@@ -258,6 +274,7 @@ Forms, Tasks, Chat, Search
    - Or use the quick links below for one-click enabling
 
 3. **Configure Environment** - Set your credentials:
+
    ```bash
    export GOOGLE_OAUTH_CLIENT_ID="your-client-id"
    export GOOGLE_OAUTH_CLIENT_SECRET="your-secret"
@@ -275,16 +292,16 @@ Forms, Tasks, Chat, Search
   <summary>⊥ <b>Quick API Enable Links</b> <sub><sup>← One-click enable each Google API</sup></sub></summary>
   You can enable each one by clicking the links below (make sure you're logged into the Google Cloud Console and have the correct project selected):
 
-* [Enable Google Calendar API](https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com)
-* [Enable Google Drive API](https://console.cloud.google.com/flows/enableapi?apiid=drive.googleapis.com)
-* [Enable Gmail API](https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com)
-* [Enable Google Docs API](https://console.cloud.google.com/flows/enableapi?apiid=docs.googleapis.com)
-* [Enable Google Sheets API](https://console.cloud.google.com/flows/enableapi?apiid=sheets.googleapis.com)
-* [Enable Google Slides API](https://console.cloud.google.com/flows/enableapi?apiid=slides.googleapis.com)
-* [Enable Google Forms API](https://console.cloud.google.com/flows/enableapi?apiid=forms.googleapis.com)
-* [Enable Google Tasks API](https://console.cloud.google.com/flows/enableapi?apiid=tasks.googleapis.com)
-* [Enable Google Chat API](https://console.cloud.google.com/flows/enableapi?apiid=chat.googleapis.com)
-* [Enable Google Custom Search API](https://console.cloud.google.com/flows/enableapi?apiid=customsearch.googleapis.com)
+- [Enable Google Calendar API](https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com)
+- [Enable Google Drive API](https://console.cloud.google.com/flows/enableapi?apiid=drive.googleapis.com)
+- [Enable Gmail API](https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com)
+- [Enable Google Docs API](https://console.cloud.google.com/flows/enableapi?apiid=docs.googleapis.com)
+- [Enable Google Sheets API](https://console.cloud.google.com/flows/enableapi?apiid=sheets.googleapis.com)
+- [Enable Google Slides API](https://console.cloud.google.com/flows/enableapi?apiid=slides.googleapis.com)
+- [Enable Google Forms API](https://console.cloud.google.com/flows/enableapi?apiid=forms.googleapis.com)
+- [Enable Google Tasks API](https://console.cloud.google.com/flows/enableapi?apiid=tasks.googleapis.com)
+- [Enable Google Chat API](https://console.cloud.google.com/flows/enableapi?apiid=chat.googleapis.com)
+- [Enable Google Custom Search API](https://console.cloud.google.com/flows/enableapi?apiid=customsearch.googleapis.com)
 
 </details>
 
@@ -302,29 +319,35 @@ Forms, Tasks, Chat, Search
 <td width="33%" align="center">
 
 **◆ Development Mode**
+
 ```bash
 export OAUTHLIB_INSECURE_TRANSPORT=1
 ```
+
 <sub>Allows HTTP redirect URIs</sub>
 
 </td>
 <td width="33%" align="center">
 
 **@ Default User**
+
 ```bash
 export USER_GOOGLE_EMAIL=\
   your.email@gmail.com
 ```
+
 <sub>Single-user authentication</sub>
 
 </td>
 <td width="34%" align="center">
 
 **◆ Custom Search**
+
 ```bash
 export GOOGLE_PSE_API_KEY=xxx
 export GOOGLE_PSE_ENGINE_ID=yyy
 ```
+
 <sub>Optional: Search API setup</sub>
 
 </td>
@@ -343,31 +366,37 @@ export GOOGLE_PSE_ENGINE_ID=yyy
 <td width="33%" align="center">
 
 **◆ Base Configuration**
+
 ```bash
 export WORKSPACE_MCP_BASE_URI=
   http://localhost
 export WORKSPACE_MCP_PORT=8000
 ```
+
 <sub>Server URL & port settings</sub>
 
 </td>
 <td width="33%" align="center">
 
 **↻ Proxy Support**
+
 ```bash
 export MCP_ENABLE_OAUTH21=
   true
 ```
+
 <sub>Leverage multi-user OAuth2.1 clients</sub>
 
 </td>
 <td width="34%" align="center">
 
 **@ Default Email**
+
 ```bash
 export USER_GOOGLE_EMAIL=\
   your.email@gmail.com
 ```
+
 <sub>Skip email in auth flows in single user mode</sub>
 
 </td>
@@ -399,6 +428,7 @@ export USER_GOOGLE_EMAIL=\
 <td width="33%" align="center">
 
 **1. Create Search Engine**
+
 ```text
 programmablesearchengine.google.com
 /controlpanel/create
@@ -406,12 +436,14 @@ programmablesearchengine.google.com
 → Configure sites or entire web
 → Note your Engine ID (cx)
 ```
+
 <sub>[Open Control Panel →](https://programmablesearchengine.google.com/controlpanel/create)</sub>
 
 </td>
 <td width="33%" align="center">
 
 **2. Get API Key**
+
 ```text
 developers.google.com
 /custom-search/v1/overview
@@ -420,18 +452,21 @@ developers.google.com
 → Enable Custom Search API
 → Create credentials (API Key)
 ```
+
 <sub>[Get API Key →](https://developers.google.com/custom-search/v1/overview)</sub>
 
 </td>
 <td width="34%" align="center">
 
 **3. Set Variables**
+
 ```bash
 export GOOGLE_PSE_API_KEY=\
   "your-api-key"
 export GOOGLE_PSE_ENGINE_ID=\
   "your-engine-id"
 ```
+
 <sub>Configure in environment</sub>
 
 </td>
@@ -454,6 +489,7 @@ export GOOGLE_PSE_ENGINE_ID=\
    - Restrict key to Custom Search API (recommended)
 
 3. **Configure Environment** - Add to your shell or `.env`:
+
    ```bash
    export GOOGLE_PSE_API_KEY="AIzaSy..."
    export GOOGLE_PSE_ENGINE_ID="01764344478..."
@@ -479,29 +515,35 @@ export GOOGLE_PSE_ENGINE_ID=\
 <td width="33%" align="center">
 
 **▶ Quick Start**
+
 ```bash
 uv run main.py
 ```
+
 <sub>Default stdio mode</sub>
 
 </td>
 <td width="33%" align="center">
 
 **◆ HTTP Mode**
+
 ```bash
 uv run main.py \
   --transport streamable-http
 ```
+
 <sub>Web interfaces & debugging</sub>
 
 </td>
 <td width="34%" align="center">
 
 **@ Single User**
+
 ```bash
 uv run main.py \
   --single-user
 ```
+
 <sub>Simplified authentication</sub>
 
 </td>
@@ -513,6 +555,7 @@ uv run main.py \
 <summary>◆ <b>Advanced Options</b> <sub><sup>← Tool selection, tiers & Docker</sup></sub></summary>
 
 **▶ Selective Tool Loading**
+
 ```bash
 # Load specific services only
 uv run main.py --tools gmail drive calendar
@@ -523,6 +566,7 @@ uv run main.py --single-user --tools gmail
 ```
 
 **★ Tool Tiers**
+
 ```bash
 uv run main.py --tool-tier core      # ● Essential tools only
 uv run main.py --tool-tier extended  # ◐ Core + additional
@@ -530,6 +574,7 @@ uv run main.py --tool-tier complete  # ○ All available tools
 ```
 
 **◆ Docker Deployment**
+
 ```bash
 docker build -t workspace-mcp .
 docker run -p 8000:8000 -v $(pwd):/app \
@@ -608,18 +653,21 @@ uv run main.py --tools docs sheets --tool-tier complete    # Full access to Docs
 <td width="33%" align="center">
 
 **🚀 Environment Variables**
+
 ```bash
 export GOOGLE_OAUTH_CLIENT_ID=\
   "your-client-id"
 export GOOGLE_OAUTH_CLIENT_SECRET=\
   "your-secret"
 ```
+
 <sub>Best for production</sub>
 
 </td>
 <td width="33%" align="center">
 
 **📁 File-based**
+
 ```bash
 # Download & place in project root
 client_secret.json
@@ -628,16 +676,19 @@ client_secret.json
 export GOOGLE_CLIENT_SECRET_PATH=\
   /path/to/secret.json
 ```
+
 <sub>Traditional method</sub>
 
 </td>
 <td width="34%" align="center">
 
 **⚡ .env File**
+
 ```bash
 cp .env.oauth21 .env
 # Edit .env with credentials
 ```
+
 <sub>Best for development</sub>
 
 </td>
@@ -649,12 +700,14 @@ cp .env.oauth21 .env
 <summary>📖 <b>Credential Loading Details</b> <sub><sup>← Understanding priority & best practices</sup></sub></summary>
 
 **Loading Priority**
+
 1. Environment variables (`export VAR=value`)
-2. `.env` file in project root (warning - if you run via `uvx` rather than `uv run` from the repo directory, you are spawning a standalone process not associated with your clone of the repo and it will not find your .env file without specifying it directly) 
+2. `.env` file in project root (warning - if you run via `uvx` rather than `uv run` from the repo directory, you are spawning a standalone process not associated with your clone of the repo and it will not find your .env file without specifying it directly)
 3. `client_secret.json` via `GOOGLE_CLIENT_SECRET_PATH`
 4. Default `client_secret.json` in project root
 
 **Why Environment Variables?**
+
 - ✅ **Docker/K8s ready** - Native container support
 - ✅ **Cloud platforms** - Heroku, Railway, Vercel
 - ✅ **CI/CD pipelines** - GitHub Actions, Jenkins
@@ -841,8 +894,8 @@ cp .env.oauth21 .env
 </tr>
 </table>
 
-
 **Tool Tier Legend:**
+
 - <span style="color:#2d5b69">•</span> **Core**: Essential tools for basic functionality • Minimal API usage • Getting started
 - <span style="color:#72898f">•</span> **Extended**: Core tools + additional features • Regular usage • Expanded capabilities
 - <span style="color:#adbcbc">•</span> **Complete**: All available tools including advanced features • Power users • Full API access
@@ -868,6 +921,7 @@ If you are unable to for some reason, you can configure it manually via `claude_
    - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
 2. Add the server configuration:
+
 ```json
 {
   "mcpServers": {
@@ -883,6 +937,7 @@ If you are unable to for some reason, you can configure it manually via `claude_
   }
 }
 ```
+
 </details>
 
 ### 2. Advanced / Cross-Platform Installation
@@ -931,6 +986,7 @@ uv run pytest
 The server includes OAuth 2.1 support for bearer token authentication, enabling multi-user session management. **OAuth 2.1 automatically reuses your existing `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` credentials** - no additional configuration needed!
 
 **When to use OAuth 2.1:**
+
 - Multiple users accessing the same MCP server instance
 - Need for bearer token authentication instead of passing user emails
 - Building web applications or APIs on top of the MCP server
@@ -953,9 +1009,9 @@ If `MCP_ENABLE_OAUTH21` is not set to `true`, the server will use legacy authent
 
 FastMCP ships a native `GoogleProvider` that we now rely on directly. It solves the two tricky parts of using Google OAuth with MCP clients:
 
-1.  **Dynamic Client Registration**: Google still doesn't support OAuth 2.1 DCR, but the FastMCP provider exposes the full DCR surface and forwards registrations to Google using your fixed credentials. MCP clients register as usual and the provider hands them your Google client ID/secret under the hood.
+1. **Dynamic Client Registration**: Google still doesn't support OAuth 2.1 DCR, but the FastMCP provider exposes the full DCR surface and forwards registrations to Google using your fixed credentials. MCP clients register as usual and the provider hands them your Google client ID/secret under the hood.
 
-2.  **CORS & Browser Compatibility**: The provider includes an OAuth proxy that serves all discovery, authorization, and token endpoints with proper CORS headers. We no longer maintain custom `/oauth2/*` routes—the provider handles the upstream exchanges securely and advertises the correct metadata to clients.
+2. **CORS & Browser Compatibility**: The provider includes an OAuth proxy that serves all discovery, authorization, and token endpoints with proper CORS headers. We no longer maintain custom `/oauth2/*` routes—the provider handles the upstream exchanges securely and advertises the correct metadata to clients.
 
 The result is a leaner server that still enables any OAuth 2.1 compliant client (including browser-based ones) to authenticate through Google without bespoke code.
 
@@ -966,6 +1022,7 @@ The result is a leaner server that still enables any OAuth 2.1 compliant client 
 The server supports a stateless mode designed for containerized environments where file system writes should be avoided:
 
 **Enabling Stateless Mode:**
+
 ```bash
 # Stateless mode requires OAuth 2.1 to be enabled
 export MCP_ENABLE_OAUTH21=true
@@ -974,6 +1031,7 @@ uv run main.py --transport streamable-http
 ```
 
 **Key Features:**
+
 - **No file system writes**: Credentials are never written to disk
 - **No debug logs**: File-based logging is completely disabled
 - **Memory-only sessions**: All tokens stored in memory via OAuth 2.1 session store
@@ -981,11 +1039,13 @@ uv run main.py --transport streamable-http
 - **Token per request**: Each request must include a valid Bearer token
 
 **Requirements:**
+
 - Must be used with `MCP_ENABLE_OAUTH21=true`
 - Incompatible with single-user mode
 - Clients must handle OAuth flow and send valid tokens with each request
 
 This mode is ideal for:
+
 - Cloud deployments where persistent storage is unavailable
 - Multi-tenant environments requiring strict isolation
 - Containerized applications with read-only filesystems
@@ -1000,6 +1060,7 @@ This mode is ideal for:
 The server supports an external OAuth 2.1 provider mode for scenarios where authentication is handled by an external system. In this mode, the MCP server does not manage the OAuth flow itself but expects valid bearer tokens in the Authorization header of tool calls.
 
 **Enabling External OAuth 2.1 Provider Mode:**
+
 ```bash
 # External OAuth provider mode requires OAuth 2.1 to be enabled
 export MCP_ENABLE_OAUTH21=true
@@ -1008,6 +1069,7 @@ uv run main.py --transport streamable-http
 ```
 
 **How It Works:**
+
 - **Protocol-level auth disabled**: MCP handshake (`initialize`) and `tools/list` do not require authentication
 - **Tool-level auth required**: All tool calls must include `Authorization: Bearer <token>` header
 - **External OAuth flow**: Your external system handles the OAuth flow and obtains Google access tokens
@@ -1015,6 +1077,7 @@ uv run main.py --transport streamable-http
 - **Multi-user support**: Each request is authenticated independently based on its bearer token
 
 **Key Features:**
+
 - **No local OAuth flow**: Server does not provide OAuth callback endpoints or manage OAuth state
 - **Bearer token only**: All authentication via Authorization headers
 - **Stateless by design**: Works seamlessly with `WORKSPACE_MCP_STATELESS_MODE=true`
@@ -1022,18 +1085,19 @@ uv run main.py --transport streamable-http
 - **Tool discovery**: Clients can list available tools without authentication
 
 **Requirements:**
+
 - Must be used with `MCP_ENABLE_OAUTH21=true`
 - OAuth credentials still required for token validation (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`)
 - External system must obtain valid Google OAuth access tokens (ya29.*)
 - Each tool call request must include valid bearer token
 
 **Use Cases:**
+
 - Integrating with existing authentication systems
 - Custom OAuth flows managed by your application
 - API gateways that handle authentication upstream
 - Multi-tenant SaaS applications with centralized auth
 - Mobile or web apps with their own OAuth implementation
-
 
 ### VS Code MCP Client Support
 
@@ -1050,8 +1114,8 @@ uv run main.py --transport streamable-http
     }
 }
 ```
-</details>
 
+</details>
 
 #### Reverse Proxy Setup
 
@@ -1060,12 +1124,14 @@ If you're running the MCP server behind a reverse proxy (nginx, Apache, Cloudfla
 **Problem**: When behind a reverse proxy, the server constructs OAuth URLs using internal ports (e.g., `http://localhost:8000`) but external clients need the public URL (e.g., `https://your-domain.com`).
 
 **Solution 1**: Set `WORKSPACE_EXTERNAL_URL` for all OAuth endpoints:
+
 ```bash
 # This configures all OAuth endpoints to use your external URL
 export WORKSPACE_EXTERNAL_URL="https://your-domain.com"
 ```
 
 **Solution 2**: Set `GOOGLE_OAUTH_REDIRECT_URI` for just the callback:
+
 ```bash
 # This only overrides the OAuth callback URL
 export GOOGLE_OAUTH_REDIRECT_URI="https://your-domain.com/oauth2callback"
@@ -1076,6 +1142,7 @@ You also have options for:
 | `OAUTH_ALLOWED_ORIGINS` *(optional)* | Comma-separated list of additional CORS origins |
 
 **Important**:
+
 - Use `WORKSPACE_EXTERNAL_URL` when all OAuth endpoints should use the external URL (recommended for reverse proxy setups)
 - Use `GOOGLE_OAUTH_REDIRECT_URI` when you only need to override the callback URL
 - The redirect URI must exactly match what's configured in your Google Cloud Console
@@ -1098,6 +1165,7 @@ uvx workspace-mcp --tool-tier complete  # All tools
 # Start in HTTP mode for debugging
 uvx workspace-mcp --transport streamable-http
 ```
+
 </details>
 
 *Requires Python 3.10+ and [uvx](https://github.com/astral-sh/uv). The package is available on [PyPI](https://pypi.org/project/workspace-mcp).*
@@ -1137,9 +1205,11 @@ uv run main.py
   }
 }
 ```
+
 </details>
 
 #### HTTP Mode (For debugging or web interfaces)
+
 If you need to use HTTP mode with Claude Desktop:
 
 ```json
@@ -1164,6 +1234,7 @@ The server uses **Google Desktop OAuth** for simplified authentication:
 - **Transport-agnostic**: Works seamlessly in both stdio and HTTP modes
 
 When calling a tool:
+
 1. Server returns authorization URL
 2. Open URL in browser and authorize
 3. Google provides an authorization code
@@ -1212,6 +1283,7 @@ The server includes an abstract credential store API and a default backend for m
 credentials with support for multiple storage backends:
 
 **Features:**
+
 - **Abstract Interface**: `CredentialStore` base class defines standard operations (get, store, delete, list users)
 - **Local File Storage**: `LocalDirectoryCredentialStore` implementation stores credentials as JSON files
 - **Configurable Storage**: Environment variable `GOOGLE_MCP_CREDENTIALS_DIR` sets storage location
@@ -1219,6 +1291,7 @@ credentials with support for multiple storage backends:
 - **Automatic Directory Creation**: Storage directory is created automatically if it doesn't exist
 
 **Configuration:**
+
 ```bash
 # Optional: Set custom credentials directory
 export GOOGLE_MCP_CREDENTIALS_DIR="/path/to/credentials"
@@ -1229,6 +1302,7 @@ export GOOGLE_MCP_CREDENTIALS_DIR="/path/to/credentials"
 ```
 
 **Usage Example:**
+
 ```python
 from auth.credential_store import get_credential_store
 
@@ -1259,7 +1333,6 @@ The credential store automatically handles credential serialization, expiry pars
 
 ---
 
-
 ---
 
 ## <span style="color:#adbcbc">≡ License</span>
@@ -1272,7 +1345,6 @@ Validations:
 [![MCP Badge](https://lobehub.com/badge/mcp/taylorwilsdon-google_workspace_mcp)](https://lobehub.com/mcp/taylorwilsdon-google_workspace_mcp)
 
 [![Verified on MseeP](https://mseep.ai/badge.svg)](https://mseep.ai/app/eebbc4a6-0f8c-41b2-ace8-038e5516dba0)
-
 
 <div align="center">
 <img width="842" alt="Batch Emails" src="https://github.com/user-attachments/assets/0876c789-7bcc-4414-a144-6c3f0aaffc06" />

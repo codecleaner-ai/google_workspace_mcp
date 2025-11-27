@@ -13,6 +13,7 @@ from auth.oauth21_session_store import (
     get_auth_provider,
     get_oauth21_session_store,
     ensure_session_from_access_token,
+    create_credentials_from_token_stateless,
 )
 from auth.oauth_config import is_oauth21_enabled, get_oauth_config
 from core.context import set_fastmcp_session_id
@@ -45,6 +46,7 @@ from auth.scopes import (
 
 logger = logging.getLogger(__name__)
 
+
 # Authentication helper functions
 def _get_auth_context(
     tool_name: str,
@@ -72,8 +74,20 @@ def _get_auth_context(
         )
         return authenticated_user, auth_method, mcp_session_id
 
-    except Exception as e:
+    except (AttributeError, KeyError, TypeError) as e:
+        # Catch specific exceptions that can occur during context retrieval:
+        # - AttributeError: ctx doesn't have expected attributes (session_id, get_state)
+        # - KeyError: get_state() key doesn't exist (though it should return None)
+        # - TypeError: Invalid type for context operations
         logger.debug(f"[{tool_name}] Could not get FastMCP context: {e}")
+        return None, None, None
+    except Exception as e:
+        # Catch-all for truly unexpected errors - log with full context
+        # This should rarely happen, but we want to know if it does
+        logger.error(
+            f"[{tool_name}] Unexpected error getting FastMCP context: {e}",
+            exc_info=True,
+        )
         return None, None, None
 
 
@@ -135,7 +149,9 @@ def _override_oauth21_user_email(
     Returns:
         Tuple of (updated_user_email, updated_args)
     """
-    if not (use_oauth21 and authenticated_user and current_user_email != authenticated_user):
+    if not (
+        use_oauth21 and authenticated_user and current_user_email != authenticated_user
+    ):
         return current_user_email, args
 
     service_suffix = f" for service '{service_type}'" if service_type else ""
@@ -197,6 +213,134 @@ async def _authenticate_service(
         )
 
 
+async def _authenticate_google_service_for_tool(
+    tool_name: str,
+    service_type: str,
+    scopes: Union[str, List[str]],
+    version: Optional[str] = None,
+    args: tuple = (),
+    kwargs: dict = None,
+    wrapper_sig: Optional[inspect.Signature] = None,
+    original_sig: Optional[inspect.Signature] = None,
+    service_type_display: str = "",
+) -> Tuple[Any, str, str]:
+    """
+    Comprehensive authentication helper for Google services.
+
+    This function centralizes the authentication logic used by both
+    require_google_service and require_multiple_services decorators,
+    reducing code duplication and ensuring consistent behavior.
+
+    Args:
+        tool_name: Name of the tool/function being decorated
+        service_type: Type of Google service ("gmail", "drive", etc.)
+        scopes: Required scopes (can be scope group names or actual URLs)
+        version: Optional service version override
+        args: Positional arguments passed to wrapper
+        kwargs: Keyword arguments passed to wrapper
+        wrapper_sig: Function signature for wrapper (for OAuth 2.0 email extraction)
+        original_sig: Original function signature (for multiple services decorator)
+        service_type_display: Display name for service type (for logging)
+
+    Returns:
+        Tuple of (service, actual_user_email, user_google_email)
+        - service: Authenticated Google API service client
+        - actual_user_email: Email of the authenticated user (from service)
+        - user_google_email: Email used for authentication (may be overridden)
+
+    Raises:
+        GoogleAuthenticationError: If authentication fails
+        Exception: If service type is unknown
+    """
+    if kwargs is None:
+        kwargs = {}
+
+    # =====================================================================
+    # STEP 1: Get authentication context from FastMCP
+    # =====================================================================
+    authenticated_user, auth_method, mcp_session_id = _get_auth_context(tool_name)
+
+    # =====================================================================
+    # STEP 2: Extract user email based on OAuth mode
+    # =====================================================================
+    if is_oauth21_enabled():
+        user_google_email = _extract_oauth21_user_email(authenticated_user, tool_name)
+    else:
+        # Use original_sig if provided (for multiple services), otherwise wrapper_sig
+        sig_to_use = original_sig if original_sig else wrapper_sig
+        if not sig_to_use:
+            raise Exception(
+                f"Function signature required for OAuth 2.0 mode in {tool_name}"
+            )
+        user_google_email = _extract_oauth20_user_email(args, kwargs, sig_to_use)
+
+    # =====================================================================
+    # STEP 3: Get service configuration
+    # =====================================================================
+    if service_type not in SERVICE_CONFIGS:
+        raise Exception(f"Unknown service type: {service_type}")
+
+    config = SERVICE_CONFIGS[service_type]
+    service_name = config["service"]
+    service_version = version or config["version"]
+
+    # =====================================================================
+    # STEP 4: Resolve scopes
+    # =====================================================================
+    resolved_scopes = _resolve_scopes(scopes)
+
+    # =====================================================================
+    # STEP 5: Log authentication status
+    # =====================================================================
+    logger.debug(
+        f"[{tool_name}] Auth: {authenticated_user or 'none'} via {auth_method or 'none'} "
+        f"(session: {mcp_session_id[:8] if mcp_session_id else 'none'})"
+    )
+
+    # =====================================================================
+    # STEP 6: Detect OAuth version
+    # =====================================================================
+    use_oauth21 = _detect_oauth_version(authenticated_user, mcp_session_id, tool_name)
+
+    # =====================================================================
+    # STEP 7: Override user_google_email with authenticated user when appropriate
+    # =====================================================================
+    # The override logic works based on use_oauth21 (per-request detection),
+    # not the global is_oauth21_enabled() flag. This allows the override
+    # to work correctly in mixed-mode scenarios where OAuth 2.1 is enabled
+    # but some requests may use OAuth 2.0.
+    # The _override_oauth21_user_email function only performs the override
+    # when use_oauth21 is True, so we call it unconditionally and let the
+    # function decide based on the actual OAuth version detected for this request.
+    param_names = list((original_sig or wrapper_sig).parameters.keys())
+    user_google_email, args = _override_oauth21_user_email(
+        use_oauth21,
+        authenticated_user,
+        user_google_email,
+        args,
+        kwargs,
+        param_names,
+        tool_name,
+        service_type_display,
+    )
+
+    # =====================================================================
+    # STEP 8: Authenticate service
+    # =====================================================================
+    service, actual_user_email = await _authenticate_service(
+        use_oauth21,
+        service_name,
+        service_version,
+        tool_name,
+        user_google_email,
+        resolved_scopes,
+        mcp_session_id,
+        authenticated_user,
+    )
+
+    return service, actual_user_email, user_google_email
+
+
 async def get_authenticated_google_service_oauth21(
     service_name: str,
     version: str,
@@ -209,46 +353,152 @@ async def get_authenticated_google_service_oauth21(
 ) -> tuple[Any, str]:
     """
     OAuth 2.1 authentication using the session store with security validation.
+
+    This function handles two authentication modes:
+    1. Stateless mode (Cloud Run): Tokens from X-Google-Access-Token header
+       - Credentials created per-request WITHOUT storing in session store
+       - Each request is independent (true stateless operation)
+    2. Session mode (stdio/legacy): Tokens from Authorization: Bearer header
+       - Credentials stored in session store for reuse
+       - Maintains backward compatibility with existing OAuth flows
     """
+    # =====================================================================
+    # STEP 1: Get authentication provider and access token from context
+    # =====================================================================
+    # The auth provider manages token lifecycle and validation
+    # The access token is stored in FastMCP context state by the middleware
     provider = get_auth_provider()
     access_token = get_access_token()
 
+    # =====================================================================
+    # STEP 2: Process access token if available (from middleware)
+    # =====================================================================
+    # This branch handles tokens that were extracted by the authentication
+    # middleware (from X-Google-Access-Token or Authorization: Bearer headers)
     if provider and access_token:
+        # Extract user email from token claims (if available)
+        # Token claims contain verified user information from Google
         token_email = None
         if getattr(access_token, "claims", None):
             token_email = access_token.claims.get("email")
 
+        # Resolve the actual user email with priority:
+        # 1. Token email (from verified token claims - most reliable)
+        # 2. Auth token email (from middleware context)
+        # 3. Requested user email (from function parameter)
         resolved_email = token_email or auth_token_email or user_google_email
         if not resolved_email:
             raise GoogleAuthenticationError(
                 "Authenticated user email could not be determined from access token."
             )
 
+        # =====================================================================
+        # STEP 3: Security validation - ensure email consistency
+        # =====================================================================
+        # CRITICAL SECURITY: Verify that all email sources match
+        # This prevents token substitution attacks where a token for one user
+        # is used to access another user's resources
+
+        # Check 1: Token email must match auth token email (if both present)
         if auth_token_email and token_email and token_email != auth_token_email:
             raise GoogleAuthenticationError(
                 "Access token email does not match authenticated session context."
             )
 
+        # Check 2: Token email must match requested user email (if both present)
         if token_email and user_google_email and token_email != user_google_email:
             raise GoogleAuthenticationError(
                 f"Authenticated account {token_email} does not match requested user {user_google_email}."
             )
 
-        credentials = ensure_session_from_access_token(access_token, resolved_email, session_id)
-        if not credentials:
-            raise GoogleAuthenticationError(
-                "Unable to build Google credentials from authenticated access token."
+        # =====================================================================
+        # STEP 4: CRITICAL - Check stateless mode flag
+        # =====================================================================
+        # The middleware sets stateless_mode=True when token comes from
+        # X-Google-Access-Token header (Cloud Run compatible)
+        # stateless_mode=False when token comes from Authorization: Bearer
+        # header (session mode, backward compatible)
+        ctx = get_context()
+        stateless_mode = ctx.get_state("stateless_mode") if ctx else False
+
+        if stateless_mode:
+            # =====================================================================
+            # STATELESS MODE: Cloud Run compatible (no session storage)
+            # =====================================================================
+            # In stateless mode, we create credentials WITHOUT storing in
+            # session store. This ensures true stateless operation where:
+            # - Each request is independent
+            # - No server-side state is maintained
+            # - Cloud Run instances can scale to zero
+            # - Multiple instances can handle requests without shared state
+
+            # Extract token metadata from access_token object
+            # These are used to create the Credentials object
+            token_scopes = getattr(access_token, "scopes", None)
+            token_expires_at = getattr(access_token, "expires_at", None)
+
+            # Create credentials WITHOUT storing in session store
+            # This function only creates the Credentials object for this request
+            # It does NOT call store.store_session() - critical for stateless operation
+            credentials = create_credentials_from_token_stateless(
+                access_token=access_token,
+                user_email=resolved_email,
+                scopes=token_scopes,
+                expires_at=token_expires_at,
             )
 
+            if not credentials:
+                raise GoogleAuthenticationError(
+                    "Unable to build Google credentials from stateless access token."
+                )
+
+            logger.debug(
+                f"Created stateless credentials for {resolved_email} (NOT stored in session store)"
+            )
+        else:
+            # =====================================================================
+            # SESSION MODE: Legacy/stdio mode (with session storage)
+            # =====================================================================
+            # In session mode, we store credentials in session store for reuse
+            # This maintains backward compatibility with:
+            # - stdio transport mode (single-user, sequential requests)
+            # - Legacy OAuth flows that expect session persistence
+            # - Development workflows that rely on session caching
+
+            # This function creates credentials AND stores them in session store
+            # The session store allows credentials to be reused across requests
+            # for the same user/session
+            credentials = ensure_session_from_access_token(
+                access_token, resolved_email, session_id
+            )
+            if not credentials:
+                raise GoogleAuthenticationError(
+                    "Unable to build Google credentials from authenticated access token."
+                )
+
+        # =====================================================================
+        # STEP 5: Validate that credentials have required scopes
+        # =====================================================================
+        # CRITICAL SECURITY: Ensure the token has all scopes required by the tool
+        # This prevents privilege escalation where a token with limited scopes
+        # is used to access resources requiring additional permissions
+
+        # Get available scopes from credentials or access_token
         scopes_available = set(credentials.scopes or [])
         if not scopes_available and getattr(access_token, "scopes", None):
             scopes_available = set(access_token.scopes)
 
+        # Verify all required scopes are present
         if not all(scope in scopes_available for scope in required_scopes):
             raise GoogleAuthenticationError(
                 f"OAuth credentials lack required scopes. Need: {required_scopes}, Have: {sorted(scopes_available)}"
             )
 
+        # =====================================================================
+        # STEP 6: Build Google API service client
+        # =====================================================================
+        # Create the Google API service client using the authenticated credentials
+        # This client is used by the tool to make API calls to Google services
         service = build(service_name, version, credentials=credentials)
         logger.info(f"[{tool_name}] Authenticated {service_name} for {resolved_email}")
         return service, resolved_email
@@ -269,11 +519,30 @@ async def get_authenticated_google_service_oauth21(
             f"You can only access credentials for your authenticated account."
         )
 
+    # =====================================================================
+    # CRITICAL SECURITY: Validate that credentials have scope information
+    # =====================================================================
+    # If credentials.scopes is empty/None, we cannot verify that the token
+    # has the required permissions. This is a security risk - we should
+    # fail securely rather than assume the token has all required scopes.
+    # A credential with no scope information could be used to access APIs
+    # requiring higher privileges if we bypass validation.
     if not credentials.scopes:
-        scopes_available = set(required_scopes)
-    else:
-        scopes_available = set(credentials.scopes)
+        raise GoogleAuthenticationError(
+            f"OAuth 2.1 credentials have no scope information. Cannot verify permissions for {user_google_email}. "
+            f"Required scopes: {required_scopes}. "
+            f"Please re-authenticate to ensure proper scope assignment."
+        )
 
+    # Get available scopes from credentials
+    scopes_available = set(credentials.scopes)
+
+    # =====================================================================
+    # CRITICAL SECURITY: Verify all required scopes are present
+    # =====================================================================
+    # Ensure the token has all scopes required by the tool
+    # This prevents privilege escalation where a token with limited scopes
+    # is used to access resources requiring additional permissions
     if not all(scope in scopes_available for scope in required_scopes):
         raise GoogleAuthenticationError(
             f"OAuth 2.1 credentials lack required scopes. Need: {required_scopes}, Have: {sorted(scopes_available)}"
@@ -285,7 +554,9 @@ async def get_authenticated_google_service_oauth21(
     return service, user_google_email
 
 
-def _extract_oauth21_user_email(authenticated_user: Optional[str], func_name: str) -> str:
+def _extract_oauth21_user_email(
+    authenticated_user: Optional[str], func_name: str
+) -> str:
     """
     Extract user email for OAuth 2.1 mode.
 
@@ -307,9 +578,7 @@ def _extract_oauth21_user_email(authenticated_user: Optional[str], func_name: st
 
 
 def _extract_oauth20_user_email(
-    args: tuple,
-    kwargs: dict,
-    wrapper_sig: inspect.Signature
+    args: tuple, kwargs: dict, wrapper_sig: inspect.Signature
 ) -> str:
     """
     Extract user email for OAuth 2.0 mode from function arguments.
@@ -330,11 +599,8 @@ def _extract_oauth20_user_email(
 
     user_google_email = bound_args.arguments.get("user_google_email")
     if not user_google_email:
-        raise Exception(
-            "'user_google_email' parameter is required but was not found."
-        )
+        raise Exception("'user_google_email' parameter is required but was not found.")
     return user_google_email
-
 
 
 def _remove_user_email_arg_from_docstring(docstring: str) -> str:
@@ -356,18 +622,19 @@ def _remove_user_email_arg_from_docstring(docstring: str) -> str:
     # - user_google_email: Description
     # - user_google_email (str) - Description
     patterns = [
-        r'^\s*user_google_email\s*\([^)]*\)\s*:\s*[^\n]*\.?\s*(?:Required\.?)?\s*\n',
-        r'^\s*user_google_email\s*:\s*[^\n]*\n',
-        r'^\s*user_google_email\s*\([^)]*\)\s*-\s*[^\n]*\n',
+        r"^\s*user_google_email\s*\([^)]*\)\s*:\s*[^\n]*\.?\s*(?:Required\.?)?\s*\n",
+        r"^\s*user_google_email\s*:\s*[^\n]*\n",
+        r"^\s*user_google_email\s*\([^)]*\)\s*-\s*[^\n]*\n",
     ]
 
     modified_docstring = docstring
     for pattern in patterns:
-        modified_docstring = re.sub(pattern, '', modified_docstring, flags=re.MULTILINE)
+        modified_docstring = re.sub(pattern, "", modified_docstring, flags=re.MULTILINE)
 
     # Clean up any sequence of 3 or more newlines that might have been created
-    modified_docstring = re.sub(r'\n{3,}', '\n\n', modified_docstring)
+    modified_docstring = re.sub(r"\n{3,}", "\n\n", modified_docstring)
     return modified_docstring
+
 
 # Service configuration mapping
 SERVICE_CONFIGS = {
@@ -423,7 +690,6 @@ SCOPE_GROUPS = {
 }
 
 
-
 def _resolve_scopes(scopes: Union[str, List[str]]) -> List[str]:
     """Resolve scope names to actual scope URLs."""
     if isinstance(scopes, str):
@@ -464,7 +730,6 @@ def _handle_token_refresh_error(
         logger.warning(
             f"Token expired or revoked for user {user_email} accessing {service_name}"
         )
-
 
         service_display_name = f"Google {service_name.title()}"
 
@@ -525,10 +790,7 @@ def require_google_service(
         # In OAuth 2.1 mode, also exclude 'user_google_email' since it's automatically determined.
         if is_oauth21_enabled():
             # Remove both 'service' and 'user_google_email' parameters
-            filtered_params = [
-                p for p in params[1:]
-                if p.name != 'user_google_email'
-            ]
+            filtered_params = [p for p in params[1:] if p.name != "user_google_email"]
             wrapper_sig = original_sig.replace(parameters=filtered_params)
         else:
             # Only remove 'service' parameter for OAuth 2.0 mode
@@ -539,67 +801,36 @@ def require_google_service(
             # Note: `args` and `kwargs` are now the arguments for the *wrapper*,
             # which does not include 'service'.
 
-            # Get authentication context early to determine OAuth mode
-            authenticated_user, auth_method, mcp_session_id = _get_auth_context(
-                func.__name__
-            )
-
-            # Extract user_google_email based on OAuth mode
-            if is_oauth21_enabled():
-                user_google_email = _extract_oauth21_user_email(authenticated_user, func.__name__)
-            else:
-                user_google_email = _extract_oauth20_user_email(args, kwargs, wrapper_sig)
-
-            # Get service configuration from the decorator's arguments
-            if service_type not in SERVICE_CONFIGS:
-                raise Exception(f"Unknown service type: {service_type}")
-
-            config = SERVICE_CONFIGS[service_type]
-            service_name = config["service"]
-            service_version = version or config["version"]
-
-            # Resolve scopes
-            resolved_scopes = _resolve_scopes(scopes)
+            tool_name = func.__name__
 
             try:
-                tool_name = func.__name__
-
-                # Log authentication status
-                logger.debug(
-                    f"[{tool_name}] Auth: {authenticated_user or 'none'} via {auth_method or 'none'} (session: {mcp_session_id[:8] if mcp_session_id else 'none'})"
-                )
-
-                # Detect OAuth version
-                use_oauth21 = _detect_oauth_version(
-                    authenticated_user, mcp_session_id, tool_name
-                )
-
-                # In OAuth 2.1 mode, user_google_email is already set to authenticated_user
-                # In OAuth 2.0 mode, we may need to override it
-                if not is_oauth21_enabled():
-                    wrapper_params = list(wrapper_sig.parameters.keys())
-                    user_google_email, args = _override_oauth21_user_email(
-                        use_oauth21,
-                        authenticated_user,
-                        user_google_email,
-                        args,
-                        kwargs,
-                        wrapper_params,
-                        tool_name,
-                    )
-
-                # Authenticate service
-                service, actual_user_email = await _authenticate_service(
-                    use_oauth21,
-                    service_name,
-                    service_version,
-                    tool_name,
+                # =====================================================================
+                # Use shared authentication helper to reduce code duplication
+                # =====================================================================
+                # This centralizes all authentication logic (context retrieval,
+                # OAuth version detection, email extraction, service authentication)
+                (
+                    service,
+                    actual_user_email,
                     user_google_email,
-                    resolved_scopes,
-                    mcp_session_id,
-                    authenticated_user,
+                ) = await _authenticate_google_service_for_tool(
+                    tool_name=tool_name,
+                    service_type=service_type,
+                    scopes=scopes,
+                    version=version,
+                    args=args,
+                    kwargs=kwargs,
+                    wrapper_sig=wrapper_sig,
+                    service_type_display=service_type,
                 )
             except GoogleAuthenticationError as e:
+                # Get context for detailed error logging
+                authenticated_user, auth_method, mcp_session_id = _get_auth_context(
+                    tool_name
+                )
+                config = SERVICE_CONFIGS[service_type]
+                service_name = config["service"]
+                service_version = version or config["version"]
                 logger.error(
                     f"[{tool_name}] GoogleAuthenticationError during authentication. "
                     f"Method={auth_method or 'none'}, User={authenticated_user or 'none'}, "
@@ -616,6 +847,8 @@ def require_google_service(
                 # Prepend the fetched service object to the original arguments
                 return await func(service, *args, **kwargs)
             except RefreshError as e:
+                config = SERVICE_CONFIGS[service_type]
+                service_name = config["service"]
                 error_message = _handle_token_refresh_error(
                     e, actual_user_email, service_name
                 )
@@ -626,7 +859,9 @@ def require_google_service(
 
         # Conditionally modify docstring to remove user_google_email parameter documentation
         if is_oauth21_enabled():
-            logger.debug('OAuth 2.1 mode enabled, removing user_google_email from docstring')
+            logger.debug(
+                "OAuth 2.1 mode enabled, removing user_google_email from docstring"
+            )
             if func.__doc__:
                 wrapper.__doc__ = _remove_user_email_arg_from_docstring(func.__doc__)
 
@@ -661,93 +896,55 @@ def require_multiple_services(service_configs: List[Dict[str, Any]]):
         # In OAuth 2.1 mode, remove user_google_email from the signature
         if is_oauth21_enabled():
             params = list(original_sig.parameters.values())
-            filtered_params = [
-                p for p in params
-                if p.name != 'user_google_email'
-            ]
+            filtered_params = [p for p in params if p.name != "user_google_email"]
             wrapper_sig = original_sig.replace(parameters=filtered_params)
         else:
             wrapper_sig = original_sig
 
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # Get authentication context early
             tool_name = func.__name__
-            authenticated_user, _, mcp_session_id = _get_auth_context(tool_name)
+            user_google_email = None  # Will be set by first service authentication
 
-            # Extract user_google_email based on OAuth mode
-            if is_oauth21_enabled():
-                user_google_email = _extract_oauth21_user_email(authenticated_user, tool_name)
-            else:
-                # OAuth 2.0 mode: extract from arguments (original logic)
-                param_names = list(original_sig.parameters.keys())
-                user_google_email = None
-                if "user_google_email" in kwargs:
-                    user_google_email = kwargs["user_google_email"]
-                else:
-                    try:
-                        user_email_index = param_names.index("user_google_email")
-                        if user_email_index < len(args):
-                            user_google_email = args[user_email_index]
-                    except ValueError:
-                        pass
-
-                if not user_google_email:
-                    raise Exception("user_google_email parameter is required but not found")
-
-            # Authenticate all services
+            # =====================================================================
+            # Authenticate all services using shared helper function
+            # =====================================================================
+            # This centralizes authentication logic and ensures consistent behavior
+            # across both decorators. The shared helper handles all authentication
+            # steps: context retrieval, OAuth version detection, email extraction,
+            # email override, and service authentication.
             for config in service_configs:
                 service_type = config["service_type"]
                 scopes = config["scopes"]
                 param_name = config["param_name"]
                 version = config.get("version")
 
-                if service_type not in SERVICE_CONFIGS:
-                    raise Exception(f"Unknown service type: {service_type}")
-
-                service_config = SERVICE_CONFIGS[service_type]
-                service_name = service_config["service"]
-                service_version = version or service_config["version"]
-                resolved_scopes = _resolve_scopes(scopes)
-
                 try:
-                    # Detect OAuth version (simplified for multiple services)
-                    use_oauth21 = (
-                        is_oauth21_enabled() and authenticated_user is not None
-                    )
-
-                    # In OAuth 2.0 mode, we may need to override user_google_email
-                    if not is_oauth21_enabled():
-                        param_names = list(original_sig.parameters.keys())
-                        user_google_email, args = _override_oauth21_user_email(
-                            use_oauth21,
-                            authenticated_user,
-                            user_google_email,
-                            args,
-                            kwargs,
-                            param_names,
-                            tool_name,
-                            service_type,
-                        )
-
-                    # Authenticate service
-                    service, _ = await _authenticate_service(
-                        use_oauth21,
-                        service_name,
-                        service_version,
-                        tool_name,
+                    # Use shared authentication helper to reduce code duplication
+                    # This handles all authentication steps for each service
+                    (
+                        service,
+                        _,
                         user_google_email,
-                        resolved_scopes,
-                        mcp_session_id,
-                        authenticated_user,
+                    ) = await _authenticate_google_service_for_tool(
+                        tool_name=tool_name,
+                        service_type=service_type,
+                        scopes=scopes,
+                        version=version,
+                        args=args,
+                        kwargs=kwargs,
+                        original_sig=original_sig,
+                        service_type_display=service_type,
                     )
 
                     # Inject service with specified parameter name
                     kwargs[param_name] = service
 
                 except GoogleAuthenticationError as e:
+                    # Use user_google_email from previous successful auth or fallback
+                    error_user = user_google_email or "unknown"
                     logger.error(
-                        f"[{tool_name}] GoogleAuthenticationError for service '{service_type}' (user: {user_google_email}): {e}"
+                        f"[{tool_name}] GoogleAuthenticationError for service '{service_type}' (user: {error_user}): {e}"
                     )
                     # Re-raise the original error without wrapping it
                     raise
@@ -771,13 +968,12 @@ def require_multiple_services(service_configs: List[Dict[str, Any]]):
 
         # Conditionally modify docstring to remove user_google_email parameter documentation
         if is_oauth21_enabled():
-            logger.debug('OAuth 2.1 mode enabled, removing user_google_email from docstring')
+            logger.debug(
+                "OAuth 2.1 mode enabled, removing user_google_email from docstring"
+            )
             if func.__doc__:
                 wrapper.__doc__ = _remove_user_email_arg_from_docstring(func.__doc__)
 
         return wrapper
 
     return decorator
-
-
-
