@@ -34,18 +34,6 @@
 
 ---
 
-### A quick plug for AI-Enhanced Docs
-
-<details>
-<summary>◆ <b>But why?</b></summary>
-
-**This README was written with AI assistance, and here's why that matters**
->
-> As a solo dev building open source tools, comprehensive documentation often wouldn't happen without AI help. Using agentic dev tools like **Roo** & **Claude Code** that understand the entire codebase, AI doesn't just regurgitate generic content - it extracts real implementation details and creates accurate, specific documentation.
->
-> In this case, Sonnet 4 took a pass & a human (me) verified them 8/16/25.
-</details>
-
 ## <span style="color:#adbcbc">Overview</span>
 
 A production-ready MCP server that integrates all major Google Workspace services with AI assistants. It supports both single-user operation and multi-user authentication via OAuth 2.1, making it a powerful backend for custom applications. Built with FastMCP for optimal performance, featuring advanced authentication handling, service caching, and streamlined development patterns.
@@ -80,11 +68,12 @@ A production-ready MCP server that integrates all major Google Workspace service
 
 **<span style="color:#72898f">⊠</span> Authentication & Security**
 
+- **New:** Server-level API Key Protection
+- **New:** Stateless/Multi-tenant Cloud Run Support
 - Advanced OAuth 2.0 & OAuth 2.1 support
 - Automatic token refresh & session management
 - Transport-aware callback handling
 - Multi-user bearer token authentication
-- Innovative CORS proxy architecture
 
 ---
 
@@ -176,11 +165,11 @@ uv run main.py --tools gmail drive
 | Variable | Purpose |
 |----------|---------|
 | `USER_GOOGLE_EMAIL` | Default email for single-user auth |
+| `GOOGLE_MCP_SERVER_API_KEY` | **New:** Server protection key |
 | `GOOGLE_PSE_API_KEY` | API key for Custom Search |
 | `GOOGLE_PSE_ENGINE_ID` | Search Engine ID for Custom Search |
 | `MCP_ENABLE_OAUTH21` | Set to `true` for OAuth 2.1 support |
-| `EXTERNAL_OAUTH21_PROVIDER` | Set to `true` for external OAuth flow with bearer tokens (requires OAuth 2.1) |
-| `WORKSPACE_MCP_STATELESS_MODE` | Set to `true` for stateless operation (requires OAuth 2.1) |
+| `WORKSPACE_MCP_STATELESS_MODE` | Set to `true` for stateless operation |
 
 </td></tr>
 </table>
@@ -190,11 +179,68 @@ Claude Desktop stores these securely in the OS keychain; set them once in the ex
 
 ---
 
-<div align="center">
-  <video width="832" src="https://github.com/user-attachments/assets/83cca4b3-5e94-448b-acb3-6e3a27341d3a"></video>
-</div>
+## 🔒 Authentication & Security
+
+This server supports three distinct authentication modes suitable for different deployment scenarios.
+
+### 1. API Key Protection (New)
+
+Secure your MCP server instance with a server-level API key. This is critical for deployments exposed to the internet (e.g., Cloud Run).
+
+**Configuration:**
+
+```bash
+export GOOGLE_MCP_SERVER_API_KEY="your-secure-random-key"
+```
+
+**Client Usage:**
+Clients must include the `X-API-Key` header in all requests:
+
+```http
+X-API-Key: your-secure-random-key
+```
+
+### 2. Stateless Mode / Direct Token Passing (New)
+
+Designed for multi-tenant SaaS applications and Cloud Run. In this mode, the server does NOT manage OAuth sessions or store tokens on disk. Instead, the client (e.g., your backend) passes the user's Google Access Token with every request.
+
+**Configuration:**
+
+```bash
+# Enable HTTP transport, OAuth 2.1, and Stateless Mode
+export TRANSPORT=streamable-http
+export MCP_ENABLE_OAUTH21=true
+export WORKSPACE_MCP_STATELESS_MODE=true
+```
+
+**Client Usage:**
+Clients must include **both** the API key (if enabled) and the Google Access Token:
+
+```http
+X-API-Key: your-server-api-key
+X-Google-Access-Token: ya29.a0... (User's Valid Google Access Token)
+```
+
+**Features:**
+
+- **Zero State:** No session files, perfect for serverless/containers.
+- **Multi-Tenant:** Handle millions of users with one server instance.
+- **Secure:** Tokens are validated per-request and never stored.
+
+### 3. Single User / Local Development (Classic)
+
+The default mode for local use with Claude Desktop. The server manages the OAuth flow and stores credentials locally.
+
+**Configuration:**
+
+```bash
+# Just run normally
+uv run main.py
+```
 
 ---
+
+## <span style="color:#adbcbc">Overview (Continued)</span>
 
 ### Prerequisites
 
@@ -307,56 +353,7 @@ Forms, Tasks, Chat, Search
 
 </details>
 
-1.1. **Credentials**: See [Credential Configuration](#credential-configuration) for detailed setup options
-
-2. **Environment Configuration**:
-
-<details open>
-<summary>◆ <b>Environment Variables</b> <sub><sup>← Configure your runtime environment</sup></sub></summary>
-
-<table>
-<tr>
-<td width="33%" align="center">
-
-**◆ Development Mode**
-
-```bash
-export OAUTHLIB_INSECURE_TRANSPORT=1
-```
-
-<sub>Allows HTTP redirect URIs</sub>
-
-</td>
-<td width="33%" align="center">
-
-**@ Default User**
-
-```bash
-export USER_GOOGLE_EMAIL=\
-  your.email@gmail.com
-```
-
-<sub>Single-user authentication</sub>
-
-</td>
-<td width="34%" align="center">
-
-**◆ Custom Search**
-
-```bash
-export GOOGLE_PSE_API_KEY=xxx
-export GOOGLE_PSE_ENGINE_ID=yyy
-```
-
-<sub>Optional: Search API setup</sub>
-
-</td>
-</tr>
-</table>
-
-</details>
-
-3. **Server Configuration**:
+### Server Configuration
 
 <details open>
 <summary>◆ <b>Server Settings</b> <sub><sup>← Customize ports, URIs & proxies</sup></sub></summary>
@@ -378,26 +375,26 @@ export WORKSPACE_MCP_PORT=8000
 </td>
 <td width="33%" align="center">
 
-**↻ Proxy Support**
+**↻ Security**
 
 ```bash
-export MCP_ENABLE_OAUTH21=
-  true
+export GOOGLE_MCP_SERVER_API_KEY=
+  your-secure-key
 ```
 
-<sub>Leverage multi-user OAuth2.1 clients</sub>
+<sub>Protect your server</sub>
 
 </td>
 <td width="34%" align="center">
 
-**@ Default Email**
+**@ Stateless Mode**
 
 ```bash
-export USER_GOOGLE_EMAIL=\
-  your.email@gmail.com
+export WORKSPACE_MCP_STATELESS_MODE=
+  true
 ```
 
-<sub>Skip email in auth flows in single user mode</sub>
+<sub>For Cloud Run / Multi-tenant</sub>
 
 </td>
 </tr>
@@ -410,98 +407,12 @@ export USER_GOOGLE_EMAIL=\
 |----------|-------------|---------|
 | `WORKSPACE_MCP_BASE_URI` | Base server URI (no port) | `http://localhost` |
 | `WORKSPACE_MCP_PORT` | Server listening port | `8000` |
-| `WORKSPACE_EXTERNAL_URL` | External URL for reverse proxy setups | None |
+| `GOOGLE_MCP_SERVER_API_KEY` | **New:** Server-level API Key | None |
+| `WORKSPACE_MCP_STATELESS_MODE` | **New:** Enable stateless operation | `false` |
 | `GOOGLE_OAUTH_REDIRECT_URI` | Override OAuth callback URL | Auto-constructed |
 | `USER_GOOGLE_EMAIL` | Default auth email | None |
 
 </details>
-
-</details>
-
-### Google Custom Search Setup
-
-<details>
-<summary>◆ <b>Custom Search Configuration</b> <sub><sup>← Enable web search capabilities</sup></sub></summary>
-
-<table>
-<tr>
-<td width="33%" align="center">
-
-**1. Create Search Engine**
-
-```text
-programmablesearchengine.google.com
-/controlpanel/create
-
-→ Configure sites or entire web
-→ Note your Engine ID (cx)
-```
-
-<sub>[Open Control Panel →](https://programmablesearchengine.google.com/controlpanel/create)</sub>
-
-</td>
-<td width="33%" align="center">
-
-**2. Get API Key**
-
-```text
-developers.google.com
-/custom-search/v1/overview
-
-→ Create/select project
-→ Enable Custom Search API
-→ Create credentials (API Key)
-```
-
-<sub>[Get API Key →](https://developers.google.com/custom-search/v1/overview)</sub>
-
-</td>
-<td width="34%" align="center">
-
-**3. Set Variables**
-
-```bash
-export GOOGLE_PSE_API_KEY=\
-  "your-api-key"
-export GOOGLE_PSE_ENGINE_ID=\
-  "your-engine-id"
-```
-
-<sub>Configure in environment</sub>
-
-</td>
-</tr>
-<tr>
-<td colspan="3">
-
-<details>
-<summary>≡ <b>Quick Setup Guide</b> <sub><sup>← Step-by-step instructions</sup></sub></summary>
-
-**Complete Setup Process:**
-
-1. **Create Search Engine** - Visit the [Control Panel](https://programmablesearchengine.google.com/controlpanel/create)
-   - Choose "Search the entire web" or specify sites
-   - Copy the Search Engine ID (looks like: `017643444788157684527:6ivsjbpxpqw`)
-
-2. **Enable API & Get Key** - Visit [Google Developers Console](https://console.cloud.google.com/)
-   - Enable "Custom Search API" in your project
-   - Create credentials → API Key
-   - Restrict key to Custom Search API (recommended)
-
-3. **Configure Environment** - Add to your shell or `.env`:
-
-   ```bash
-   export GOOGLE_PSE_API_KEY="AIzaSy..."
-   export GOOGLE_PSE_ENGINE_ID="01764344478..."
-   ```
-
-≡ [Full Documentation →](https://developers.google.com/custom-search/v1/overview)
-
-</details>
-
-</td>
-</tr>
-</table>
 
 </details>
 

@@ -258,6 +258,38 @@ class OAuth21SessionStore:
                 expiry.isoformat(),
             )
 
+    def peek_oauth_state(self, state: str) -> Optional[Dict[str, Any]]:
+        """
+        Peek at OAuth state metadata without consuming it.
+
+        This method allows callers to inspect the state metadata (e.g., to extract
+        session_id) without consuming the state. The state must still be validated
+        and consumed via validate_and_consume_oauth_state() before use.
+
+        Args:
+            state: The OAuth state to peek at.
+
+        Returns:
+            Metadata associated with the state, or None if the state doesn't exist
+            or has expired.
+
+        Note:
+            This method does NOT consume the state. The state must still be validated
+            and consumed via validate_and_consume_oauth_state() to prevent reuse.
+        """
+        if not state:
+            return None
+
+        with self._lock:
+            # Clean up expired states before peeking
+            self._cleanup_expired_oauth_states_locked()
+            # Return a copy of the state info to prevent external modification
+            state_info = self._oauth_states.get(state)
+            if state_info:
+                # Return a shallow copy to prevent external modification
+                return dict(state_info)
+            return None
+
     def validate_and_consume_oauth_state(
         self,
         state: str,
