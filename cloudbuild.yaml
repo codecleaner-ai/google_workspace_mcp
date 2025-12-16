@@ -1,0 +1,160 @@
+# Instructions for Cloud Build to build the Google Workspace MCP Server
+# Uses the CI/CD service account created by build-gcp-resources.sh
+serviceAccount: projects/${PROJECT_ID}/serviceAccounts/cicd-mcp-google-workspace@${PROJECT_ID}.iam.gserviceaccount.com
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # Step 01: Build the Docker image
+  - name: "gcr.io/cloud-builders/docker"
+    entrypoint: "bash"
+    env:
+      - "COMMIT_SHA=${_COMMIT_SHA}"
+      - "BRANCH_NAME=${BRANCH_NAME}"
+      - "BUILD_ID=${BUILD_ID}"
+      - "PROJECT_ID=${PROJECT_ID}"
+      - "API_VERSION=${_API_VERSION}"
+    args:
+      - "-c"
+      - |
+        echo "Starting Step 01: Building the Docker image..."
+        # GOTCHA: We are using `bash` as the entrypoint
+        # We need to use `$$` to escape the `$` sign in the bash script
+        # In the context of Cloud Build, we need to use `$$` instead of `$`
+
+        echo "Building the Docker image..."
+        ## Because we are using Cloud Build substitutions the syntax is different
+        echo "The commit SHA is: ${_COMMIT_SHA}"
+        echo "The build ID is: $${BUILD_ID}"
+        echo "The Project ID is: $${PROJECT_ID}"
+        ## Because we are using Cloud Build substitutions the syntax is different
+        echo "The App name is: ${_SERVICE_NAME}"
+        ## Because we are using Cloud Build substitutions the syntax is different
+        echo "The API version is: ${_API_VERSION}"
+
+        # Fetch DEBUG_MODE from secret if _DEBUG_MODE substitution is not set or passed as "false"
+        # However, the deployment script passes _DEBUG_MODE explicitly.
+        echo "Debug Mode: ${_DEBUG_MODE}"
+
+        # Build the Docker image
+        docker build -t asia-southeast1-docker.pkg.dev/$${PROJECT_ID}/${_SERVICE_NAME}/${_SERVICE_NAME}-images:${_COMMIT_SHA} \
+          --build-arg TOOL_TIER=prod \
+          --build-arg API_VERSION="${_API_VERSION}" \
+          --label version=$$_COMMIT_SHA_$$BUILD_ID \
+          --label description="Version built by Cloud Build based on the $$BRANCH_NAME branch - commit: ${_COMMIT_SHA}" \
+          .
+
+        # Tag the image as 'latest'
+        echo "Tagging the image with 'latest'"
+        docker tag asia-southeast1-docker.pkg.dev/$${PROJECT_ID}/${_SERVICE_NAME}/${_SERVICE_NAME}-images:${_COMMIT_SHA} \
+          asia-southeast1-docker.pkg.dev/$${PROJECT_ID}/${_SERVICE_NAME}/${_SERVICE_NAME}-images:latest
+
+  # Step 02: Push the Docker image to GCP Artifact Registry - commit SHA tag
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "push"
+      - "asia-southeast1-docker.pkg.dev/${PROJECT_ID}/${_SERVICE_NAME}/${_SERVICE_NAME}-images:${_COMMIT_SHA}"
+
+  # Step 03: Push the Docker image to GCP Artifact Registry - latest tag
+  - name: "gcr.io/cloud-builders/docker"
+    env:
+      - "COMMIT_SHA=${_COMMIT_SHA}"
+      - "BRANCH_NAME=${BRANCH_NAME}"
+      - "BUILD_ID=${BUILD_ID}"
+      - "PROJECT_ID=${PROJECT_ID}"
+    args:
+      - "push"
+      - "asia-southeast1-docker.pkg.dev/${PROJECT_ID}/${_SERVICE_NAME}/${_SERVICE_NAME}-images:latest"
+
+  # Step 04: Deploy the "latest" Docker image to Cloud Run
+  - name: "gcr.io/cloud-builders/gcloud"
+    entrypoint: "bash"
+    env:
+      - "PROJECT_ID=${PROJECT_ID}"
+    args:
+      - "-c"
+      - |
+        # GOTCHA: We are using `bash` as the entrypoint
+        # We need to use `$$` to escape the `$` sign in the bash script
+        # In the context of Cloud Build, we need to use `$$` instead of `$`
+
+        echo "Starting Step 04: Deploying Docker image to Cloud Run..."
+
+        # Set variables
+        SERVICE_NAME="${_SERVICE_NAME}-cloud-run-1"
+        DOCKER_IMAGE_PATH="asia-southeast1-docker.pkg.dev/${PROJECT_ID}/${_SERVICE_NAME}/${_SERVICE_NAME}-images:latest"
+        REGION="asia-southeast1"
+
+        # Runtime Service Account for Cloud Run (created by build-gcp-resources.sh)
+        # This is the identity the Cloud Run service runs as
+        RUNTIME_SA_ID="${_SERVICE_NAME}-runtime"
+        RUNTIME_SA_EMAIL="$${RUNTIME_SA_ID}@$${PROJECT_ID}.iam.gserviceaccount.com"
+
+        # Auth Token Secret Name
+        AUTH_TOKEN_SECRET_NAME="${_SERVICE_NAME}-auth-token"
+
+        # Content/OAuth Secrets (Shared/Integration)
+        CLIENT_ID_SECRET="google-calendar-client-id"
+        CLIENT_SECRET_SECRET="google-calendar-client-secret"
+        REDIRECT_URI_SECRET="google-workspace-redirect-uri"
+
+        # Check if debug mode is enabled
+        if [[ "${_DEBUG_MODE}" == "true" ]]; then
+          DEBUG_ENV_VAR="DEBUG_MODE=true"
+        else
+          DEBUG_ENV_VAR="DEBUG_MODE=false"
+        fi
+
+        echo "Deploying image: $${DOCKER_IMAGE_PATH} to Cloud Run service $${SERVICE_NAME} in region $${REGION}..."
+        echo "Runtime Service Account: $${RUNTIME_SA_EMAIL}"
+        echo "Auth Token Secret: $${AUTH_TOKEN_SECRET_NAME}"
+        echo "Client ID Secret: $${CLIENT_ID_SECRET}"
+
+        # Deploy the image to Cloud Run
+        # NOTE: Mapping AUTH_TOKEN secret to GOOGLE_MCP_SERVER_API_KEY env var as expected by api_key_middleware.py
+        gcloud run deploy $${SERVICE_NAME} \
+          --image $${DOCKER_IMAGE_PATH} \
+          --project $${PROJECT_ID} \
+          --region $${REGION} \
+          --platform managed \
+          --no-allow-unauthenticated \
+          --service-account "$${RUNTIME_SA_EMAIL}" \
+          --set-secrets="GOOGLE_MCP_SERVER_API_KEY=$${AUTH_TOKEN_SECRET_NAME}:latest,GOOGLE_OAUTH_CLIENT_ID=$${CLIENT_ID_SECRET}:latest,GOOGLE_OAUTH_CLIENT_SECRET=$${CLIENT_SECRET_SECRET}:latest,GOOGLE_OAUTH_REDIRECT_URI=$${REDIRECT_URI_SECRET}:latest" \
+          --set-env-vars="$${DEBUG_ENV_VAR}" \
+          --revision-suffix "$$(echo "${_API_VERSION}" | tr '.' '-')"
+
+        # Check if the deployment was successful
+        if [[ $? -ne 0 ]]; then
+          echo "ERROR: Deployment failed."
+          exit 1
+        else
+          echo "Deployment to Cloud Run was successful."
+        fi
+
+        # Wait 5 seconds before the next step
+        sleep 5
+
+        # Make sure the latest revision serves 100% of the traffic
+        gcloud run services update-traffic $${SERVICE_NAME} \
+          --to-latest \
+          --region $${REGION} \
+          --project $${PROJECT_ID}
+
+        # Check if the update was successful
+        if [[ $? -ne 0 ]]; then
+          echo "ERROR: Traffic update failed."
+          exit 1
+        else
+          echo "Traffic update to the latest revision was successful."
+        fi
+
+images:
+  - "asia-southeast1-docker.pkg.dev/${PROJECT_ID}/${_SERVICE_NAME}/${_SERVICE_NAME}-images:${_COMMIT_SHA}"
+  - "asia-southeast1-docker.pkg.dev/${PROJECT_ID}/${_SERVICE_NAME}/${_SERVICE_NAME}-images:latest"
+
+substitutions:
+  _COMMIT_SHA: "${SHORT_SHA}"
+  _SERVICE_NAME: "mcp-google-workspace"
+  _API_VERSION: "v1.5.5" # Default fallback, normally overridden
+  _DEBUG_MODE: "false"

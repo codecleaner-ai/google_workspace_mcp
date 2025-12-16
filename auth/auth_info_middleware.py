@@ -730,12 +730,25 @@ class AuthInfoMiddleware(Middleware):
         try:
             headers = get_http_headers()
             if headers:
-                logger.debug("Processing HTTP headers for authentication")
+                # DEBUG: Log all headers received for troubleshooting
+                logger.debug(
+                    f"Processing HTTP headers for authentication - Header keys: {list(headers.keys())}, "
+                    f"Has X-Google-Access-Token: {'x-google-access-token' in [k.lower() for k in headers.keys()] or 'X-Google-Access-Token' in headers}"
+                )
 
                 # Extract token from headers (X-Google-Access-Token or Authorization: Bearer)
                 token_str, is_stateless, auth_source = self._extract_token_from_headers(
                     headers
                 )
+
+                # DEBUG: Log token extraction result
+                if token_str:
+                    logger.debug(
+                        f"Token extracted from headers - Source: {auth_source}, "
+                        f"Is stateless: {is_stateless}, Token preview: {token_str[:10]}..."
+                    )
+                else:
+                    logger.debug("No token found in headers after extraction")
 
                 if token_str:
                     # Validate token format (must be ya29.* for Google OAuth)

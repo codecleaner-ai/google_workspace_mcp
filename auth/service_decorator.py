@@ -1,13 +1,18 @@
+import hashlib
 import inspect
+import json
 import logging
-
 import re
+import time
 from functools import wraps
+from socket import timeout as SocketTimeout
 from typing import Dict, List, Optional, Any, Callable, Union, Tuple
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 from google.auth.exceptions import RefreshError
 from googleapiclient.discovery import build
-from fastmcp.server.dependencies import get_access_token, get_context
+from fastmcp.server.dependencies import get_access_token, get_context, get_http_headers
 from auth.google_auth import get_authenticated_google_service, GoogleAuthenticationError
 from auth.oauth21_session_store import (
     get_auth_provider,
@@ -60,17 +65,41 @@ def _get_auth_context(
     try:
         ctx = get_context()
         if not ctx:
+            logger.debug(f"[{tool_name}] get_context() returned None")
             return None, None, None
 
         authenticated_user = ctx.get_state("authenticated_user_email")
         auth_method = ctx.get_state("authenticated_via")
         mcp_session_id = ctx.session_id if hasattr(ctx, "session_id") else None
 
+        # CRITICAL FIX: If authenticated_user is None but stateless_mode is set,
+        # try to get user_email as fallback (middleware sets both)
+        if not authenticated_user:
+            stateless_mode = ctx.get_state("stateless_mode")
+            if stateless_mode:
+                # Try to get user_email as fallback (middleware sets this in stateless mode)
+                authenticated_user = ctx.get_state("user_email")
+                if authenticated_user:
+                    logger.debug(
+                        f"[{tool_name}] Retrieved authenticated_user from user_email fallback (stateless mode)"
+                    )
+                # Also try to get auth_method from stateless mode
+                if not auth_method:
+                    auth_method = ctx.get_state("authenticated_via")
+                    if not auth_method:
+                        # Check if access_token exists (indicates authentication happened)
+                        access_token = ctx.get_state("access_token")
+                        if access_token:
+                            auth_method = "x_google_access_token"
+                            logger.debug(
+                                f"[{tool_name}] Detected auth_method from access_token presence (stateless mode)"
+                            )
+
         if mcp_session_id:
             set_fastmcp_session_id(mcp_session_id)
 
         logger.debug(
-            f"[{tool_name}] Auth from middleware: {authenticated_user} via {auth_method}"
+            f"[{tool_name}] Auth from middleware: {authenticated_user} via {auth_method} (session: {mcp_session_id[:8] if mcp_session_id else 'none'})"
         )
         return authenticated_user, auth_method, mcp_session_id
 
@@ -100,6 +129,24 @@ def _detect_oauth_version(
     Returns:
         True if OAuth 2.1 should be used, False otherwise
     """
+    # CRITICAL: Check stateless_mode FIRST (before global flag check)
+    # If X-Google-Access-Token header is present, middleware sets stateless_mode=True
+    # Stateless mode REQUIRES OAuth 2.1, so this check takes precedence
+    try:
+        ctx = get_context()
+        if ctx:
+            stateless_mode = ctx.get_state("stateless_mode")
+            if stateless_mode:
+                logger.info(
+                    f"[{tool_name}] OAuth 2.1 mode detected via stateless_mode flag (X-Google-Access-Token header present)"
+                )
+                return True
+    except Exception as e:
+        logger.debug(
+            f"[{tool_name}] Could not check stateless_mode flag in context: {e}"
+        )
+
+    # If stateless_mode is not set, check global OAuth 2.1 flag
     if not is_oauth21_enabled():
         return False
 
@@ -368,22 +415,233 @@ async def get_authenticated_google_service_oauth21(
     # The auth provider manages token lifecycle and validation
     # The access token is stored in FastMCP context state by the middleware
     provider = get_auth_provider()
-    access_token = get_access_token()
+
+    # CRITICAL FIX: Retrieve access token directly from context
+    # get_access_token() from FastMCP dependencies may not work correctly,
+    # so we retrieve it directly from context where middleware set it
+    ctx = get_context()
+    access_token = None
+    if ctx:
+        # Try access_token_obj first (set by middleware for verified tokens)
+        access_token = ctx.get_state("access_token_obj")
+        if not access_token:
+            # Fallback to access_token (set by middleware as AccessTokenData)
+            access_token = ctx.get_state("access_token")
+        # If still None, try get_access_token() as last resort
+        if not access_token:
+            access_token = get_access_token()
+
+    # CRITICAL FALLBACK: If context state didn't persist, try getting token from headers directly
+    # This handles cases where middleware set the state but context isn't available during tool execution
+    if not access_token:
+        logger.warning(
+            f"[{tool_name}] Access token not found in context - attempting fallback from HTTP headers"
+        )
+        try:
+            headers = get_http_headers()
+            logger.debug(
+                f"[{tool_name}] Fallback: get_http_headers() returned: {headers is not None}, "
+                f"Header keys: {list(headers.keys()) if headers else 'None'}"
+            )
+            if headers:
+                # Try X-Google-Access-Token header first (stateless mode)
+                token_str = headers.get("x-google-access-token") or headers.get(
+                    "X-Google-Access-Token"
+                )
+                logger.debug(
+                    f"[{tool_name}] Fallback: Token from header: {token_str[:20] + '...' if token_str else 'None'}"
+                )
+                if token_str and token_str.startswith("ya29."):
+                    # Create AccessTokenData object from header token (same as middleware does)
+                    from auth.auth_info_middleware import AccessTokenData
+                    from auth.oauth_config import get_oauth_config
+
+                    # Get OAuth config for client_id
+                    oauth_config = get_oauth_config()
+                    client_id = oauth_config.get("client_id", "google")
+
+                    # Get scopes from Google's tokeninfo endpoint
+                    # This is needed because we can't extract scopes from the token string directly
+                    scopes = []
+                    expires_at = int(time.time()) + 3600  # Default 1 hour expiration
+                    try:
+                        tokeninfo_url = f"https://oauth2.googleapis.com/tokeninfo?access_token={token_str}"
+                        request = Request(tokeninfo_url)
+                        with urlopen(request, timeout=5) as response:
+                            if response.getcode() == 200:
+                                tokeninfo = json.loads(response.read().decode())
+                                scope_str = tokeninfo.get("scope", "")
+                                scopes = scope_str.split() if scope_str else []
+                                exp = tokeninfo.get("exp")
+                                if exp:
+                                    expires_at = int(exp)
+                                logger.debug(
+                                    f"[{tool_name}] Fallback: Retrieved scopes from tokeninfo: {len(scopes)} scope(s)"
+                                )
+                            else:
+                                logger.warning(
+                                    f"[{tool_name}] Fallback: tokeninfo endpoint returned {response.getcode()}, "
+                                    f"using empty scopes (will fail scope validation)"
+                                )
+                    except (
+                        URLError,
+                        SocketTimeout,
+                        json.JSONDecodeError,
+                        ValueError,
+                        Exception,
+                    ) as e:
+                        logger.warning(
+                            f"[{tool_name}] Fallback: Could not get scopes from tokeninfo endpoint: {e}, "
+                            f"using empty scopes (will fail scope validation)"
+                        )
+
+                    # Create AccessTokenData (middleware would have done this, but context didn't persist)
+                    token_hash = hashlib.sha256(token_str.encode()).hexdigest()[:16]
+                    session_id = f"google_oauth_{token_hash}"
+
+                    access_token = AccessTokenData(
+                        token=token_str,
+                        client_id=client_id,
+                        scopes=scopes,  # Scopes retrieved from tokeninfo endpoint
+                        session_id=session_id,
+                        expires_at=expires_at,  # Expiration from tokeninfo or default
+                        sub=user_google_email,  # Use requested user email as sub
+                        email=user_google_email,  # Use requested user email
+                    )
+                    logger.info(
+                        f"[{tool_name}] FALLBACK SUCCESS: Retrieved access token directly from X-Google-Access-Token header "
+                        f"(context state not available, token: {token_str[:20]}..., scopes: {len(scopes)} scope(s))"
+                    )
+                else:
+                    logger.warning(
+                        f"[{tool_name}] Fallback: Token found in header but doesn't start with 'ya29.': "
+                        f"{token_str[:20] + '...' if token_str else 'None'}"
+                    )
+            else:
+                logger.warning(
+                    f"[{tool_name}] Fallback: get_http_headers() returned None or empty"
+                )
+        except Exception as e:
+            logger.error(
+                f"[{tool_name}] FALLBACK ERROR: Could not retrieve token from headers: {e}",
+                exc_info=True,
+            )
+
+    # DEBUG: Log authentication state for troubleshooting
+    logger.debug(
+        f"[{tool_name}] Authentication check - Provider: {provider is not None}, "
+        f"Access token: {access_token is not None}, "
+        f"Context: {ctx is not None}, "
+        f"User email: {user_google_email}, Session ID: {session_id}"
+    )
+    if access_token:
+        # Get scopes from access_token - handle both None and empty list cases
+        token_scopes = getattr(access_token, "scopes", None)
+        if token_scopes is None:
+            token_scopes = []
+
+        logger.debug(
+            f"[{tool_name}] Access token found - Type: {type(access_token).__name__}, "
+            f"Has claims: {hasattr(access_token, 'claims')}, "
+            f"Scopes: {len(token_scopes)} scope(s) (value: {token_scopes}), "
+            f"Token preview: {getattr(access_token, 'token', 'N/A')[:10]}..."
+            if hasattr(access_token, "token")
+            else "N/A"
+        )
+
+        # CRITICAL: If access_token has empty scopes, fetch them from tokeninfo endpoint
+        # This handles cases where middleware stored token without scopes (no auth provider to verify)
+        # Check for both None and empty list - empty list [] is falsy, but be explicit
+        if (token_scopes is None or len(token_scopes) == 0) and hasattr(
+            access_token, "token"
+        ):
+            token_str = access_token.token
+            if token_str and token_str.startswith("ya29."):
+                logger.warning(
+                    f"[{tool_name}] Access token from context has empty scopes - fetching from tokeninfo endpoint"
+                )
+                try:
+                    tokeninfo_url = f"https://oauth2.googleapis.com/tokeninfo?access_token={token_str}"
+                    request = Request(tokeninfo_url)
+                    with urlopen(request, timeout=5) as response:
+                        if response.getcode() == 200:
+                            tokeninfo = json.loads(response.read().decode())
+                            scope_str = tokeninfo.get("scope", "")
+                            scopes = scope_str.split() if scope_str else []
+                            if scopes:
+                                # Update the access_token object with retrieved scopes
+                                access_token.scopes = scopes
+                                exp = tokeninfo.get("exp")
+                                if exp:
+                                    access_token.expires_at = int(exp)
+                                logger.info(
+                                    f"[{tool_name}] Retrieved {len(scopes)} scope(s) from tokeninfo endpoint "
+                                    f"and updated access_token object"
+                                )
+                            else:
+                                logger.warning(
+                                    f"[{tool_name}] tokeninfo endpoint returned empty scopes"
+                                )
+                        else:
+                            logger.warning(
+                                f"[{tool_name}] tokeninfo endpoint returned {response.getcode()}"
+                            )
+                except (
+                    URLError,
+                    SocketTimeout,
+                    json.JSONDecodeError,
+                    ValueError,
+                    Exception,
+                ) as e:
+                    logger.warning(
+                        f"[{tool_name}] Could not get scopes from tokeninfo endpoint: {e}"
+                    )
+    elif ctx:
+        # Log what's actually in context for debugging
+        access_token_obj_in_ctx = ctx.get_state("access_token_obj")
+        access_token_in_ctx = ctx.get_state("access_token")
+        stateless_mode_in_ctx = ctx.get_state("stateless_mode")
+        user_email_in_ctx = ctx.get_state("user_email")
+        logger.warning(
+            f"[{tool_name}] No access token found. Context state: "
+            f"access_token_obj={access_token_obj_in_ctx is not None} (type: {type(access_token_obj_in_ctx).__name__ if access_token_obj_in_ctx else 'None'}), "
+            f"access_token={access_token_in_ctx is not None} (type: {type(access_token_in_ctx).__name__ if access_token_in_ctx else 'None'}), "
+            f"stateless_mode={stateless_mode_in_ctx}, "
+            f"user_email={user_email_in_ctx}"
+        )
+        # If stateless_mode is True but access_token is None, this is a critical issue
+        if (
+            stateless_mode_in_ctx
+            and not access_token_in_ctx
+            and not access_token_obj_in_ctx
+        ):
+            logger.error(
+                f"[{tool_name}] CRITICAL: stateless_mode=True but no access_token in context! "
+                f"This indicates middleware set stateless_mode but failed to store access_token."
+            )
 
     # =====================================================================
-    # STEP 2: Process access token if available (from middleware)
+    # STEP 2: Process access token if available (from middleware or header fallback)
     # =====================================================================
     # This branch handles tokens that were extracted by the authentication
     # middleware (from X-Google-Access-Token or Authorization: Bearer headers)
-    if provider and access_token:
-        # Extract user email from token claims (if available)
-        # Token claims contain verified user information from Google
+    # OR retrieved directly from headers as a fallback if context state didn't persist
+    # NOTE: In stateless mode, we can use access_token even if provider is None
+    # (provider is only needed for token verification, which is optional)
+    if access_token:
+        # Extract user email from token (supports both AccessTokenData and AccessToken objects)
+        # AccessTokenData has .email attribute directly
+        # AccessToken (verified) has .claims.get("email")
         token_email = None
-        if getattr(access_token, "claims", None):
+        if hasattr(access_token, "email"):
+            # AccessTokenData object (from middleware when token not verified)
+            token_email = access_token.email
+        elif getattr(access_token, "claims", None):
+            # AccessToken object (from verified token)
             token_email = access_token.claims.get("email")
 
         # Resolve the actual user email with priority:
-        # 1. Token email (from verified token claims - most reliable)
+        # 1. Token email (from token object - most reliable)
         # 2. Auth token email (from middleware context)
         # 3. Requested user email (from function parameter)
         resolved_email = token_email or auth_token_email or user_google_email
@@ -418,8 +676,47 @@ async def get_authenticated_google_service_oauth21(
         # X-Google-Access-Token header (Cloud Run compatible)
         # stateless_mode=False when token comes from Authorization: Bearer
         # header (session mode, backward compatible)
+        # FALLBACK: If context state not available, check headers directly
         ctx = get_context()
         stateless_mode = ctx.get_state("stateless_mode") if ctx else False
+
+        # FALLBACK: If stateless_mode not in context, check if token came from X-Google-Access-Token header
+        # If we got the token from the fallback mechanism, it's definitely stateless mode
+        if not stateless_mode and access_token and hasattr(access_token, "token"):
+            # Check if we got this token from the fallback (header retrieval)
+            # If so, it's definitely stateless mode
+            try:
+                headers = get_http_headers()
+                if headers:
+                    # If token is from X-Google-Access-Token header, it's stateless mode
+                    token_from_header = headers.get(
+                        "x-google-access-token"
+                    ) or headers.get("X-Google-Access-Token")
+                    if token_from_header and token_from_header == access_token.token:
+                        stateless_mode = True
+                        logger.info(
+                            f"[{tool_name}] FALLBACK: Detected stateless mode from X-Google-Access-Token header "
+                            f"(context state not available, token matches header)"
+                        )
+                    else:
+                        logger.debug(
+                            f"[{tool_name}] Fallback stateless check: Token from header doesn't match access_token.token"
+                        )
+                else:
+                    logger.debug(
+                        f"[{tool_name}] Fallback stateless check: get_http_headers() returned None"
+                    )
+            except Exception as e:
+                logger.debug(
+                    f"[{tool_name}] Could not check headers for stateless mode: {e}"
+                )
+
+        # DEBUG: Log stateless mode detection
+        logger.debug(
+            f"[{tool_name}] Stateless mode check - Context: {ctx is not None}, "
+            f"Stateless mode: {stateless_mode}, "
+            f"Resolved email: {resolved_email}"
+        )
 
         if stateless_mode:
             # =====================================================================
@@ -433,9 +730,18 @@ async def get_authenticated_google_service_oauth21(
             # - Multiple instances can handle requests without shared state
 
             # Extract token metadata from access_token object
-            # These are used to create the Credentials object
+            # Supports both AccessTokenData (has .scopes, .expires_at) and AccessToken objects
             token_scopes = getattr(access_token, "scopes", None)
             token_expires_at = getattr(access_token, "expires_at", None)
+
+            # Extract token string (needed for creating credentials)
+            token_str = None
+            if hasattr(access_token, "token"):
+                # AccessTokenData object
+                token_str = access_token.token
+            elif hasattr(access_token, "access_token"):
+                # AccessToken object (verified)
+                token_str = access_token.access_token
 
             # Create credentials WITHOUT storing in session store
             # This function only creates the Credentials object for this request
@@ -503,6 +809,17 @@ async def get_authenticated_google_service_oauth21(
         logger.info(f"[{tool_name}] Authenticated {service_name} for {resolved_email}")
         return service, resolved_email
 
+    # =====================================================================
+    # FALLBACK: No access token from middleware - try session store
+    # =====================================================================
+    # This branch handles cases where no token was provided in headers
+    # It tries to get credentials from the session store (OAuth 2.0 flow)
+    logger.debug(
+        f"[{tool_name}] No access token from middleware - falling back to session store. "
+        f"Provider: {provider}, Access token: {access_token}, "
+        f"User email: {user_google_email}, Session ID: {session_id}"
+    )
+
     store = get_oauth21_session_store()
 
     # Use the validation method to ensure session can only access its own credentials
@@ -514,6 +831,16 @@ async def get_authenticated_google_service_oauth21(
     )
 
     if not credentials:
+        # CRITICAL: This error indicates the middleware did NOT extract the token from headers
+        # This means either:
+        # 1. Headers were not sent correctly from backend
+        # 2. Headers were not received by MCP server
+        # 3. get_http_headers() is not working during tool calls
+        logger.error(
+            f"[{tool_name}] CRITICAL: No credentials found in session store AND no access token from middleware. "
+            f"This indicates X-Google-Access-Token header was not processed. "
+            f"User: {user_google_email}, Session: {session_id}"
+        )
         raise GoogleAuthenticationError(
             f"Access denied: Cannot retrieve credentials for {user_google_email}. "
             f"You can only access credentials for your authenticated account."
@@ -570,11 +897,38 @@ def _extract_oauth21_user_email(
     Raises:
         Exception: If no authenticated user found in OAuth 2.1 mode
     """
-    if not authenticated_user:
-        raise Exception(
-            f"OAuth 2.1 mode requires an authenticated user for {func_name}, but none was found."
+    if authenticated_user:
+        return authenticated_user
+
+    # CRITICAL FIX: Fallback to context if authenticated_user is None
+    # This handles the case where middleware authenticated but context retrieval failed
+    try:
+        ctx = get_context()
+        if ctx:
+            # Try user_email as fallback (middleware sets this in stateless mode)
+            user_email = ctx.get_state("user_email")
+            if user_email:
+                logger.debug(
+                    f"[{func_name}] Retrieved user_email from context fallback: {user_email}"
+                )
+                return user_email
+
+            # Try authenticated_user_email again (in case it was set after initial check)
+            authenticated_user_email = ctx.get_state("authenticated_user_email")
+            if authenticated_user_email:
+                logger.debug(
+                    f"[{func_name}] Retrieved authenticated_user_email from context fallback: {authenticated_user_email}"
+                )
+                return authenticated_user_email
+    except Exception as e:
+        logger.debug(
+            f"[{func_name}] Could not retrieve user email from context fallback: {e}"
         )
-    return authenticated_user
+
+    # If we still don't have a user email, raise an error
+    raise Exception(
+        f"OAuth 2.1 mode requires an authenticated user for {func_name}, but none was found in context."
+    )
 
 
 def _extract_oauth20_user_email(

@@ -12,10 +12,56 @@ from core import server as mcp_server
 from core.config import get_transport_mode, set_transport_mode
 from auth.api_key_middleware import APIKeyMiddleware
 from auth.mcp_session_middleware import MCPSessionMiddleware
+from core.tool_registry import (
+    set_enabled_tools as set_enabled_tool_names,
+    wrap_server_tool_method,
+    filter_server_tools,
+)
+from auth.scopes import set_enabled_tools
 
 
 dotenv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
 load_dotenv(dotenv_path=dotenv_path)
+
+# ============================================================================
+# IMPORT ALL TOOL MODULES TO REGISTER THEIR @server.tool() DECORATORS
+# ============================================================================
+# CRITICAL: Tool modules must be imported for their decorators to execute
+# and register tools with the server. Without these imports, only tools
+# defined directly in core.server (like start_google_auth) will be available.
+# ============================================================================
+import gmail.gmail_tools  # noqa: F401
+import gdrive.drive_tools  # noqa: F401
+import gcalendar.calendar_tools  # noqa: F401
+import gdocs.docs_tools  # noqa: F401
+import gsheets.sheets_tools  # noqa: F401
+import gchat.chat_tools  # noqa: F401
+import gforms.forms_tools  # noqa: F401
+import gslides.slides_tools  # noqa: F401
+import gtasks.tasks_tools  # noqa: F401
+import gsearch.search_tools  # noqa: F401
+
+# Configure tool registration
+wrap_server_tool_method(mcp_server.server)
+
+# Enable all tools and services by default
+all_services = [
+    "gmail",
+    "drive",
+    "calendar",
+    "docs",
+    "sheets",
+    "chat",
+    "forms",
+    "slides",
+    "tasks",
+    "search",
+]
+set_enabled_tools(all_services)  # Set enabled services for scopes
+set_enabled_tool_names(None)  # Don't filter individual tools - enable all
+
+# Filter tools based on configuration (if any tool filtering is configured)
+filter_server_tools(mcp_server.server)
 
 # Suppress googleapiclient discovery cache warning
 logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)

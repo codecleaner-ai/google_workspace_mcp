@@ -2,6 +2,8 @@ import logging
 from typing import List, Optional
 from importlib import metadata
 
+import os  # Ensure os is imported if not already
+
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.requests import Request
 from starlette.middleware import Middleware
@@ -44,8 +46,14 @@ session_middleware = Middleware(MCPSessionMiddleware)
 #
 # Health check endpoints can be called very frequently (e.g., every few seconds),
 # so caching the version prevents unnecessary disk I/O on every request
+
 try:
-    _cached_version = metadata.version("workspace-mcp")
+    # First try to get version from environment variable (set in Dockerfile)
+    _cached_version = os.getenv("APP_VERSION")
+
+    # If not in env, try to get from package metadata
+    if not _cached_version:
+        _cached_version = metadata.version("workspace-mcp")
 except metadata.PackageNotFoundError:
     # If package metadata not found (e.g., running from source), use "dev"
     _cached_version = "dev"
