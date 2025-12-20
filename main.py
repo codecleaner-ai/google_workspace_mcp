@@ -7,7 +7,8 @@ import uvicorn
 from starlette.applications import Starlette
 
 from auth.oauth_config import reload_oauth_config
-from core.log_formatter import EnhancedLogFormatter, configure_file_logging
+from core.log_formatter import EnhancedLogFormatter, setup_enhanced_logging
+from core.logger import initialize_loggers
 from core import server as mcp_server
 from core.config import get_transport_mode, set_transport_mode
 from auth.api_key_middleware import APIKeyMiddleware
@@ -20,8 +21,17 @@ from core.tool_registry import (
 from auth.scopes import set_enabled_tools
 
 
-dotenv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-load_dotenv(dotenv_path=dotenv_path)
+# Load environment variables from .env.local (local overrides, git-ignored) or .env (shared defaults)
+# This matches the pattern used by the restart-server.sh script
+env_dir = os.path.dirname(os.path.abspath(__file__))
+env_local_path = os.path.join(env_dir, ".env.local")
+env_path = os.path.join(env_dir, ".env")
+
+# Try .env.local first (local overrides), then .env (shared defaults)
+if os.path.exists(env_local_path):
+    load_dotenv(dotenv_path=env_local_path, override=True)
+elif os.path.exists(env_path):
+    load_dotenv(dotenv_path=env_path)
 
 # ============================================================================
 # IMPORT ALL TOOL MODULES TO REGISTER THEIR @server.tool() DECORATORS
@@ -68,12 +78,18 @@ logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)
 
 reload_oauth_config()
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+# Initialize structured logging (file-based, JSON format)
+# This must be called before basicConfig to ensure proper logger setup
+initialize_loggers()
 
-configure_file_logging()
+# Configure console logging with enhanced formatter (for human-readable output)
+# This is separate from file logging and provides nice console output
+debug_mode = os.getenv("DEBUG_MODE", "false").lower() == "true"
+console_log_level = logging.DEBUG if debug_mode else logging.INFO
+setup_enhanced_logging(log_level=console_log_level, use_colors=True)
+
+# Get the standard logger for this module
+logger = logging.getLogger(__name__)
 
 
 def safe_print(text):
