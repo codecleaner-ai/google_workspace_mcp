@@ -187,8 +187,8 @@ def main():
         # FastMCP server's own HTTP application.
         app.mount("/", app=mcp_app)
 
-        # Get port from environment variable or default to 3003
-        port = int(os.getenv("PORT", 3003))
+        # Get port from environment variable or default to 8080 (Cloud Run standard)
+        port = int(os.getenv("PORT", 8080))
 
         # Run the main Starlette application
         uvicorn.run(app, host="0.0.0.0", port=port)
