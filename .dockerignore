@@ -22,6 +22,9 @@ dist/
 # Development files
 mcp_server_debug.log
 .credentials/
+.env.local
+.env.oauth21
+*.env.local
 
 # Cache and temporary files
 __pycache__/
