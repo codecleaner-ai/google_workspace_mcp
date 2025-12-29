@@ -525,6 +525,7 @@ async def create_event(
     reminders: Optional[Union[str, List[Dict[str, Any]]]] = None,
     use_default_reminders: bool = True,
     transparency: Optional[str] = None,
+    send_updates: str = "all",
 ) -> str:
     """
     Creates a new event.
@@ -544,6 +545,7 @@ async def create_event(
         reminders (Optional[Union[str, List[Dict[str, Any]]]]): JSON string or list of reminder objects. Each should have 'method' ("popup" or "email") and 'minutes' (0-40320). Max 5 reminders. Example: '[{"method": "popup", "minutes": 15}]' or [{"method": "popup", "minutes": 15}]
         use_default_reminders (bool): Whether to use calendar's default reminders. If False, uses custom reminders. Defaults to True.
         transparency (Optional[str]): Event transparency for busy/free status. "opaque" shows as Busy (default), "transparent" shows as Available/Free. Defaults to None (uses Google Calendar default).
+        send_updates (str): Whether to send email notifications to attendees. Options: "all" (send to all attendees), "externalOnly" (send only to external attendees), "none" (don't send). Defaults to "all" to ensure invited attendees receive email invitations.
 
     Returns:
         str: Confirmation message of the successful event creation with event link.
@@ -856,16 +858,22 @@ async def create_event(
         logger.debug(
             f"[create_event] About to send event_body to Google Calendar API. Attendees (JSON format): {attendees_json}"
         )
-        created_event = await asyncio.to_thread(
-            lambda: service.events()
-            .insert(
-                calendarId=calendar_id,
-                body=event_body,
-                supportsAttachments=True,
-                conferenceDataVersion=1 if add_google_meet else 0,
-            )
-            .execute()
+        logger.info(
+            f"[create_event] Sending event with sendUpdates={send_updates} to ensure email invitations are sent"
         )
+        # Build the insert request with sendUpdates parameter
+        insert_request = service.events().insert(
+            calendarId=calendar_id,
+            body=event_body,
+            supportsAttachments=True,
+            conferenceDataVersion=1 if add_google_meet else 0,
+            sendUpdates=send_updates,
+        )
+        # Log the request parameters to verify sendUpdates is included
+        logger.debug(
+            f"[create_event] Insert request parameters: calendarId={calendar_id}, sendUpdates={send_updates}, has_attendees={bool(event_body.get('attendees'))}"
+        )
+        created_event = await asyncio.to_thread(lambda: insert_request.execute())
     else:
         # CRITICAL: Log event_body before sending to Google Calendar API for debugging (JSON format that will be sent)
         attendees_json = (
@@ -876,15 +884,21 @@ async def create_event(
         logger.debug(
             f"[create_event] About to send event_body to Google Calendar API. Attendees (JSON format): {attendees_json}"
         )
-        created_event = await asyncio.to_thread(
-            lambda: service.events()
-            .insert(
-                calendarId=calendar_id,
-                body=event_body,
-                conferenceDataVersion=1 if add_google_meet else 0,
-            )
-            .execute()
+        logger.info(
+            f"[create_event] Sending event with sendUpdates={send_updates} to ensure email invitations are sent"
         )
+        # Build the insert request with sendUpdates parameter
+        insert_request = service.events().insert(
+            calendarId=calendar_id,
+            body=event_body,
+            conferenceDataVersion=1 if add_google_meet else 0,
+            sendUpdates=send_updates,
+        )
+        # Log the request parameters to verify sendUpdates is included
+        logger.debug(
+            f"[create_event] Insert request parameters: calendarId={calendar_id}, sendUpdates={send_updates}, has_attendees={bool(event_body.get('attendees'))}"
+        )
+        created_event = await asyncio.to_thread(lambda: insert_request.execute())
     link = created_event.get("htmlLink", "No link available")
     confirmation_message = f"Successfully created event '{created_event.get('summary', summary)}' for {user_google_email}. Link: {link}"
 
@@ -924,6 +938,7 @@ async def modify_event(
     reminders: Optional[Union[str, List[Dict[str, Any]]]] = None,
     use_default_reminders: Optional[bool] = None,
     transparency: Optional[str] = None,
+    send_updates: str = "all",
 ) -> str:
     """
     Modifies an existing event.
@@ -943,6 +958,7 @@ async def modify_event(
         reminders (Optional[Union[str, List[Dict[str, Any]]]]): JSON string or list of reminder objects to replace existing reminders. Each should have 'method' ("popup" or "email") and 'minutes' (0-40320). Max 5 reminders. Example: '[{"method": "popup", "minutes": 15}]' or [{"method": "popup", "minutes": 15}]
         use_default_reminders (Optional[bool]): Whether to use calendar's default reminders. If specified, overrides current reminder settings.
         transparency (Optional[str]): Event transparency for busy/free status. "opaque" shows as Busy, "transparent" shows as Available/Free. If None, preserves existing transparency setting.
+        send_updates (str): Whether to send email notifications to attendees when event is modified. Options: "all" (send to all attendees), "externalOnly" (send only to external attendees), "none" (don't send). Defaults to "all" to ensure attendees receive email notifications about changes.
 
     Returns:
         str: Confirmation message of the successful event modification with event link.
@@ -1144,6 +1160,7 @@ async def modify_event(
             eventId=event_id,
             body=event_body,
             conferenceDataVersion=1,
+            sendUpdates=send_updates,
         )
         .execute()
     )
