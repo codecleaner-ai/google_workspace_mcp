@@ -729,6 +729,14 @@ class AuthInfoMiddleware(Middleware):
         # =====================================================================
         try:
             headers = get_http_headers()
+            # CRITICAL DEBUG: Log detailed information about get_http_headers() behavior
+            logger.debug(
+                f"🔍 get_http_headers() result - Type: {type(headers)}, "
+                f"Is None: {headers is None}, "
+                f"Is Empty Dict: {headers == {}}, "
+                f"Has Keys: {list(headers.keys()) if headers else 'N/A'}, "
+                f"Header Count: {len(headers) if headers else 0}"
+            )
             if headers:
                 # DEBUG: Log all headers received for troubleshooting
                 logger.debug(
@@ -774,7 +782,8 @@ class AuthInfoMiddleware(Middleware):
                     logger.debug("No Bearer token or X-Google-Access-Token in headers")
             else:
                 logger.debug(
-                    "No HTTP headers available (might be using stdio transport)"
+                    "⚠️ get_http_headers() returned None or empty - This is expected during tool calls with SSE, "
+                    "as tool calls are JSON-RPC messages within the SSE stream, not separate HTTP requests"
                 )
         except Exception as e:
             logger.debug(f"Could not get HTTP request: {e}")
@@ -814,7 +823,11 @@ class AuthInfoMiddleware(Middleware):
         Raises:
             Re-raises any exceptions that occur during processing
         """
-        logger.debug(f"Processing {request_type} authentication")
+        logger.debug(
+            f"🔍 Processing {request_type} authentication - "
+            f"Context available: {context.fastmcp_context is not None}, "
+            f"Auth already set: {context.fastmcp_context.get_state('authenticated_user_email') if context.fastmcp_context else 'N/A'}"
+        )
 
         try:
             # Extract and store authentication information
