@@ -45,5 +45,8 @@ ARG API_VERSION
 ENV APP_VERSION=${API_VERSION}
 
 # Use entrypoint for the base command and CMD for args
+# CRITICAL: Use .venv/bin/python to run main.py directly from source, not via uv run
+# This ensures we're running the actual source code copied into the image,
+# not the installed package version which may not match the source
 ENTRYPOINT ["/bin/sh", "-c"]
-CMD ["uv run main.py --transport streamable-http ${TOOL_TIER:+--tool-tier \"$TOOL_TIER\"} ${TOOLS:+--tools $TOOLS}"]
+CMD [".venv/bin/python main.py --transport streamable-http ${TOOL_TIER:+--tool-tier \"$TOOL_TIER\"} ${TOOLS:+--tools $TOOLS}"]
