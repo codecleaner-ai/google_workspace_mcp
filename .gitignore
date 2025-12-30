@@ -12,6 +12,8 @@ dist/
 
 # ---- Environments & tooling -------------------------------------------
 .env
+.env.local
+.env.oauth21
 .venv/
 venv/
 .idea/
