@@ -73,7 +73,7 @@ class AuthInfoMiddleware(Middleware):
         Extract authentication token from HTTP headers.
 
         Priority:
-        1. X-Google-Access-Token (stateless mode, Cloud Run compatible)
+        1. X-Mcp-Google-Token (stateless mode, Cloud Run compatible)
         2. Authorization: Bearer (session mode, backward compatible)
 
         Args:
@@ -82,19 +82,20 @@ class AuthInfoMiddleware(Middleware):
         Returns:
             Tuple of (token_str, is_stateless, auth_source):
             - token_str: The extracted token string, or None if not found
-            - is_stateless: True if token is from X-Google-Access-Token (stateless mode)
-            - auth_source: Source of token ("x_google_access_token" or "bearer_token")
+            - is_stateless: True if token is from X-Mcp-Google-Token (stateless mode)
+            - auth_source: Source of token ("x_mcp_google_token" or "bearer_token")
         """
-        # PRIORITY 1: Check X-Google-Access-Token header first (for Cloud Run compatibility)
-        google_access_token = headers.get("x-google-access-token") or headers.get(
-            "X-Google-Access-Token"
+        # PRIORITY 1: Check X-Mcp-Google-Token header first (for Cloud Run compatibility)
+        # Note: Cloud Run strips X-Google-* headers, so we use X-Mcp-Google-Token
+        google_access_token = headers.get("x-mcp-google-token") or headers.get(
+            "X-Mcp-Google-Token"
         )
 
         if google_access_token:
             # CRITICAL: Trim whitespace to prevent authentication failures from unexpected characters
             google_access_token = google_access_token.strip()
             if google_access_token:  # Only return if token is not empty after trimming
-                return google_access_token, True, "x_google_access_token"
+                return google_access_token, True, "x_mcp_google_token"
 
         # PRIORITY 2: Fallback to Authorization header (for backward compatibility)
         auth_header = headers.get("authorization", "")
@@ -120,8 +121,8 @@ class AuthInfoMiddleware(Middleware):
         """
         # Google OAuth tokens must start with "ya29."
         if not token_str.startswith("ya29."):
-            if auth_source == "x_google_access_token":
-                # X-Google-Access-Token header MUST contain ya29.* tokens only
+            if auth_source == "x_mcp_google_token":
+                # X-Mcp-Google-Token header MUST contain ya29.* tokens only
                 logger.error(
                     f"Invalid Google OAuth token format in {auth_source}: token does not start with 'ya29.'"
                 )
@@ -285,8 +286,8 @@ class AuthInfoMiddleware(Middleware):
             access_token: Access token SimpleNamespace object
             verified_auth: Verified AccessToken object, or None
             user_email: User email, or None
-            is_stateless: True if token is stateless (from X-Google-Access-Token)
-            auth_source: Source of token ("x_google_access_token" or "bearer_token")
+            is_stateless: True if token is stateless (from X-Mcp-Google-Token)
+            auth_source: Source of token ("x_mcp_google_token" or "bearer_token")
         """
         # Store basic authentication state in context
         context.fastmcp_context.set_state("access_token", access_token)
@@ -476,7 +477,7 @@ class AuthInfoMiddleware(Middleware):
         Process JWT token from Authorization: Bearer header (backward compatibility).
 
         This handles non-ya29.* tokens (JWT tokens) from Authorization header.
-        Note: X-Google-Access-Token header MUST contain ya29.* tokens only.
+        Note: X-Mcp-Google-Token header MUST contain ya29.* tokens only.
 
         SECURITY: JWT tokens are verified with signature verification enabled.
         Without a valid signature, the token will be rejected.
@@ -688,8 +689,8 @@ class AuthInfoMiddleware(Middleware):
         Args:
             context: FastMCP middleware context
             token_str: Token string (must start with ya29.)
-            is_stateless: True if token is stateless (from X-Google-Access-Token)
-            auth_source: Source of token ("x_google_access_token" or "bearer_token")
+            is_stateless: True if token is stateless (from X-Mcp-Google-Token)
+            auth_source: Source of token ("x_mcp_google_token" or "bearer_token")
         """
         logger.debug("Detected Google OAuth access token format")
 
@@ -716,7 +717,7 @@ class AuthInfoMiddleware(Middleware):
         Extract, verify, and store authentication information from request headers.
 
         This method implements a two-tier authentication system:
-        1. Stateless mode (X-Google-Access-Token): For Cloud Run deployment
+        1. Stateless mode (X-Mcp-Google-Token): For Cloud Run deployment
            - Tokens are NOT stored in session store
            - Each request is independent (true stateless operation)
            - Required for Cloud Run where instances can scale to zero
@@ -755,10 +756,10 @@ class AuthInfoMiddleware(Middleware):
                 # DEBUG: Log all headers received for troubleshooting
                 logger.debug(
                     f"Processing HTTP headers for authentication - Header keys: {list(headers.keys())}, "
-                    f"Has X-Google-Access-Token: {'x-google-access-token' in [k.lower() for k in headers.keys()] or 'X-Google-Access-Token' in headers}"
+                    f"Has X-Mcp-Google-Token: {'x-mcp-google-token' in [k.lower() for k in headers.keys()] or 'X-Mcp-Google-Token' in headers}"
                 )
 
-                # Extract token from headers (X-Google-Access-Token or Authorization: Bearer)
+                # Extract token from headers (X-Mcp-Google-Token or Authorization: Bearer)
                 token_str, is_stateless, auth_source = self._extract_token_from_headers(
                     headers
                 )
@@ -788,12 +789,12 @@ class AuthInfoMiddleware(Middleware):
                         # JWT token from Authorization header (backward compatibility)
                         self._process_jwt_token(context, token_str)
                     else:
-                        # Invalid: X-Google-Access-Token must contain ya29.* tokens only
+                        # Invalid: X-Mcp-Google-Token must contain ya29.* tokens only
                         logger.error(
                             f"Invalid Google OAuth token format in {auth_source}: token does not start with 'ya29.'"
                         )
                 else:
-                    logger.debug("No Bearer token or X-Google-Access-Token in headers")
+                    logger.debug("No Bearer token or X-Mcp-Google-Token in headers")
             else:
                 logger.debug(
                     "⚠️ get_http_headers() returned None or empty - This is expected during tool calls with SSE, "
@@ -804,10 +805,10 @@ class AuthInfoMiddleware(Middleware):
             # DEBUG: Log all headers received for troubleshooting
             logger.debug(
                 f"Processing HTTP headers for authentication - Header keys: {list(headers.keys())}, "
-                f"Has X-Google-Access-Token: {'x-google-access-token' in [k.lower() for k in headers.keys()] or 'X-Google-Access-Token' in headers}"
+                f"Has X-Mcp-Google-Token: {'x-mcp-google-token' in [k.lower() for k in headers.keys()] or 'X-Mcp-Google-Token' in headers}"
             )
 
-            # Extract token from headers (X-Google-Access-Token or Authorization: Bearer)
+            # Extract token from headers (X-Mcp-Google-Token or Authorization: Bearer)
             token_str, is_stateless, auth_source = self._extract_token_from_headers(
                 headers
             )
@@ -837,12 +838,12 @@ class AuthInfoMiddleware(Middleware):
                     # JWT token from Authorization header (backward compatibility)
                     self._process_jwt_token(context, token_str)
                 else:
-                    # Invalid: X-Google-Access-Token must contain ya29.* tokens only
+                    # Invalid: X-Mcp-Google-Token must contain ya29.* tokens only
                     logger.error(
                         f"Invalid Google OAuth token format in {auth_source}: token does not start with 'ya29.'"
                     )
             else:
-                logger.debug("No Bearer token or X-Google-Access-Token in headers")
+                logger.debug("No Bearer token or X-Mcp-Google-Token in headers")
 
         # =====================================================================
         # STEP 2: Fallback authentication methods (for stdio mode)

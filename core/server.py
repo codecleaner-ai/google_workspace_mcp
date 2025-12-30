@@ -102,7 +102,7 @@ def _create_external_oauth_provider(config, required_scopes: List[str]):
 
     This mode is used when:
     - OAuth is handled by frontend/backend (not MCP server)
-    - Tokens are passed via X-Google-Access-Token header
+    - Tokens are passed via X-Mcp-Google-Token header
     - Server operates in stateless mode (Cloud Run compatible)
 
     Args:

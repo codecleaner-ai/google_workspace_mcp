@@ -130,7 +130,7 @@ def _detect_oauth_version(
         True if OAuth 2.1 should be used, False otherwise
     """
     # CRITICAL: Check stateless_mode FIRST (before global flag check)
-    # If X-Google-Access-Token header is present, middleware sets stateless_mode=True
+    # If X-Mcp-Google-Token header is present, middleware sets stateless_mode=True
     # Stateless mode REQUIRES OAuth 2.1, so this check takes precedence
     try:
         ctx = get_context()
@@ -138,7 +138,7 @@ def _detect_oauth_version(
             stateless_mode = ctx.get_state("stateless_mode")
             if stateless_mode:
                 logger.info(
-                    f"[{tool_name}] OAuth 2.1 mode detected via stateless_mode flag (X-Google-Access-Token header present)"
+                    f"[{tool_name}] OAuth 2.1 mode detected via stateless_mode flag (X-Mcp-Google-Token header present)"
                 )
                 return True
     except Exception as e:
@@ -402,7 +402,7 @@ async def get_authenticated_google_service_oauth21(
     OAuth 2.1 authentication using the session store with security validation.
 
     This function handles two authentication modes:
-    1. Stateless mode (Cloud Run): Tokens from X-Google-Access-Token header
+    1. Stateless mode (Cloud Run): Tokens from X-Mcp-Google-Token header
        - Credentials created per-request WITHOUT storing in session store
        - Each request is independent (true stateless operation)
     2. Session mode (stdio/legacy): Tokens from Authorization: Bearer header
@@ -444,9 +444,10 @@ async def get_authenticated_google_service_oauth21(
                 f"Header keys: {list(headers.keys()) if headers else 'None'}"
             )
             if headers:
-                # Try X-Google-Access-Token header first (stateless mode)
-                token_str = headers.get("x-google-access-token") or headers.get(
-                    "X-Google-Access-Token"
+                # Try X-Mcp-Google-Token header first (stateless mode)
+                # Note: Cloud Run strips X-Google-* headers, so we use X-Mcp-Google-Token
+                token_str = headers.get("x-mcp-google-token") or headers.get(
+                    "X-Mcp-Google-Token"
                 )
                 # CRITICAL: Trim whitespace to prevent authentication failures from unexpected characters
                 if token_str:
@@ -512,7 +513,7 @@ async def get_authenticated_google_service_oauth21(
                         email=user_google_email,  # Use requested user email
                     )
                     logger.info(
-                        f"[{tool_name}] FALLBACK SUCCESS: Retrieved access token directly from X-Google-Access-Token header "
+                        f"[{tool_name}] FALLBACK SUCCESS: Retrieved access token directly from X-Mcp-Google-Token header "
                         f"(context state not available, token: {token_str[:20]}..., scopes: {len(scopes)} scope(s))"
                     )
                 else:
@@ -627,7 +628,7 @@ async def get_authenticated_google_service_oauth21(
     # STEP 2: Process access token if available (from middleware or header fallback)
     # =====================================================================
     # This branch handles tokens that were extracted by the authentication
-    # middleware (from X-Google-Access-Token or Authorization: Bearer headers)
+    # middleware (from X-Mcp-Google-Token or Authorization: Bearer headers)
     # OR retrieved directly from headers as a fallback if context state didn't persist
     # NOTE: In stateless mode, we can use access_token even if provider is None
     # (provider is only needed for token verification, which is optional)
@@ -676,14 +677,14 @@ async def get_authenticated_google_service_oauth21(
         # STEP 4: CRITICAL - Check stateless mode flag
         # =====================================================================
         # The middleware sets stateless_mode=True when token comes from
-        # X-Google-Access-Token header (Cloud Run compatible)
+        # X-Mcp-Google-Token header (Cloud Run compatible)
         # stateless_mode=False when token comes from Authorization: Bearer
         # header (session mode, backward compatible)
         # FALLBACK: If context state not available, check headers directly
         ctx = get_context()
         stateless_mode = ctx.get_state("stateless_mode") if ctx else False
 
-        # FALLBACK: If stateless_mode not in context, check if token came from X-Google-Access-Token header
+        # FALLBACK: If stateless_mode not in context, check if token came from X-Mcp-Google-Token header
         # If we got the token from the fallback mechanism, it's definitely stateless mode
         if not stateless_mode and access_token and hasattr(access_token, "token"):
             # Check if we got this token from the fallback (header retrieval)
@@ -691,14 +692,14 @@ async def get_authenticated_google_service_oauth21(
             try:
                 headers = get_http_headers()
                 if headers:
-                    # If token is from X-Google-Access-Token header, it's stateless mode
+                    # If token is from X-Mcp-Google-Token header, it's stateless mode
                     token_from_header = headers.get(
-                        "x-google-access-token"
-                    ) or headers.get("X-Google-Access-Token")
+                        "x-mcp-google-token"
+                    ) or headers.get("X-Mcp-Google-Token")
                     if token_from_header and token_from_header == access_token.token:
                         stateless_mode = True
                         logger.info(
-                            f"[{tool_name}] FALLBACK: Detected stateless mode from X-Google-Access-Token header "
+                            f"[{tool_name}] FALLBACK: Detected stateless mode from X-Mcp-Google-Token header "
                             f"(context state not available, token matches header)"
                         )
                     else:
@@ -841,7 +842,7 @@ async def get_authenticated_google_service_oauth21(
         # 3. get_http_headers() is not working during tool calls
         logger.error(
             f"[{tool_name}] CRITICAL: No credentials found in session store AND no access token from middleware. "
-            f"This indicates X-Google-Access-Token header was not processed. "
+            f"This indicates X-Mcp-Google-Token header was not processed. "
             f"User: {user_google_email}, Session: {session_id}"
         )
         raise GoogleAuthenticationError(

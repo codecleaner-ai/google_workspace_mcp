@@ -218,7 +218,7 @@ Clients must include **both** the API key (if enabled) and the Google Access Tok
 
 ```http
 X-API-Key: your-server-api-key
-X-Google-Access-Token: ya29.a0... (User's Valid Google Access Token)
+X-Mcp-Google-Token: ya29.a0... (User's Valid Google Access Token)
 ```
 
 **Features:**
