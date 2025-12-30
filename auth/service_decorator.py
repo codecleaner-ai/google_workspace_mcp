@@ -448,6 +448,9 @@ async def get_authenticated_google_service_oauth21(
                 token_str = headers.get("x-google-access-token") or headers.get(
                     "X-Google-Access-Token"
                 )
+                # CRITICAL: Trim whitespace to prevent authentication failures from unexpected characters
+                if token_str:
+                    token_str = token_str.strip()
                 logger.debug(
                     f"[{tool_name}] Fallback: Token from header: {token_str[:20] + '...' if token_str else 'None'}"
                 )

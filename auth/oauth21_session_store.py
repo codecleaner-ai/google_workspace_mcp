@@ -154,6 +154,9 @@ def extract_session_from_headers(headers: Dict[str, str]) -> Optional[str]:
     if auth_header and auth_header.lower().startswith("bearer "):
         # Extract bearer token and try to find associated session
         token = auth_header[7:]  # Remove "Bearer " prefix
+        # CRITICAL: Trim whitespace to prevent authentication failures from unexpected characters
+        if token:
+            token = token.strip()
         if token:
             # =====================================================================
             # O(1) LOOKUP: Use reverse mapping for efficient token lookup

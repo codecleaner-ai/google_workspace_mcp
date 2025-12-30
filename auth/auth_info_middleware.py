@@ -51,12 +51,20 @@ class AuthInfoMiddleware(Middleware):
 
         # Load configuration from environment variables once at initialization
         # This improves performance and makes dependencies explicit
-        self.google_oauth_client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "google")
+        # CRITICAL: Trim whitespace to prevent authentication failures from unexpected characters
+        google_oauth_client_id_raw = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "google")
+        self.google_oauth_client_id = (
+            google_oauth_client_id_raw.strip()
+            if google_oauth_client_id_raw
+            else "google"
+        )
         self.google_validate_tokens = (
             os.getenv("GOOGLE_VALIDATE_TOKENS", "true").lower() == "true"
         )
-        self.jwt_secret = os.getenv("JWT_SECRET")
-        self.jwt_public_key = os.getenv("JWT_PUBLIC_KEY")
+        jwt_secret_raw = os.getenv("JWT_SECRET")
+        jwt_public_key_raw = os.getenv("JWT_PUBLIC_KEY")
+        self.jwt_secret = jwt_secret_raw.strip() if jwt_secret_raw else None
+        self.jwt_public_key = jwt_public_key_raw.strip() if jwt_public_key_raw else None
 
     def _extract_token_from_headers(
         self, headers: dict
@@ -83,13 +91,19 @@ class AuthInfoMiddleware(Middleware):
         )
 
         if google_access_token:
-            return google_access_token, True, "x_google_access_token"
+            # CRITICAL: Trim whitespace to prevent authentication failures from unexpected characters
+            google_access_token = google_access_token.strip()
+            if google_access_token:  # Only return if token is not empty after trimming
+                return google_access_token, True, "x_google_access_token"
 
         # PRIORITY 2: Fallback to Authorization header (for backward compatibility)
         auth_header = headers.get("authorization", "")
         if auth_header.startswith("Bearer "):
             token_str = auth_header[7:]  # Remove "Bearer " prefix
-            return token_str, False, "bearer_token"
+            # CRITICAL: Trim whitespace to prevent authentication failures from unexpected characters
+            token_str = token_str.strip()
+            if token_str:  # Only return if token is not empty after trimming
+                return token_str, False, "bearer_token"
 
         return None, False, None
 
@@ -787,6 +801,48 @@ class AuthInfoMiddleware(Middleware):
                 )
         except Exception as e:
             logger.debug(f"Could not get HTTP request: {e}")
+            # DEBUG: Log all headers received for troubleshooting
+            logger.debug(
+                f"Processing HTTP headers for authentication - Header keys: {list(headers.keys())}, "
+                f"Has X-Google-Access-Token: {'x-google-access-token' in [k.lower() for k in headers.keys()] or 'X-Google-Access-Token' in headers}"
+            )
+
+            # Extract token from headers (X-Google-Access-Token or Authorization: Bearer)
+            token_str, is_stateless, auth_source = self._extract_token_from_headers(
+                headers
+            )
+
+            # DEBUG: Log token extraction result
+            if token_str:
+                logger.debug(
+                    f"Token extracted from headers - Source: {auth_source}, "
+                    f"Is stateless: {is_stateless}, Token preview: {token_str[:10]}..."
+                )
+            else:
+                logger.debug("No token found in headers after extraction")
+
+            if token_str:
+                # Validate token format (must be ya29.* for Google OAuth)
+                if not self._validate_token_format(token_str, auth_source):
+                    # Invalid format - error already logged
+                    return
+
+                # Process token based on format
+                if token_str.startswith("ya29."):
+                    # Google OAuth token - process it
+                    await self._process_google_oauth_token(
+                        context, token_str, is_stateless, auth_source
+                    )
+                elif auth_source == "bearer_token":
+                    # JWT token from Authorization header (backward compatibility)
+                    self._process_jwt_token(context, token_str)
+                else:
+                    # Invalid: X-Google-Access-Token must contain ya29.* tokens only
+                    logger.error(
+                        f"Invalid Google OAuth token format in {auth_source}: token does not start with 'ya29.'"
+                    )
+            else:
+                logger.debug("No Bearer token or X-Google-Access-Token in headers")
 
         # =====================================================================
         # STEP 2: Fallback authentication methods (for stdio mode)
