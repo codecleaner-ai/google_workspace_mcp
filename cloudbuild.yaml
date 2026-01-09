@@ -95,8 +95,8 @@ steps:
         AUTH_TOKEN_SECRET_NAME="${_SERVICE_NAME}-auth-token"
 
         # Content/OAuth Secrets (Shared/Integration)
-        CLIENT_ID_SECRET="google-calendar-client-id"
-        CLIENT_SECRET_SECRET="google-calendar-client-secret"
+        CLIENT_ID_SECRET="google-oauth-client-id"
+        CLIENT_SECRET_SECRET="google-oauth-client-secret"
         REDIRECT_URI_SECRET="google-workspace-redirect-uri"
 
         # Check if debug mode is enabled
