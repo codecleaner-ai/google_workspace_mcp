@@ -1756,7 +1756,7 @@ wheels = [
 
 [[package]]
 name = "workspace-mcp-codecleaner"
-version = "1.6.10"
+version = "1.6.11"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
