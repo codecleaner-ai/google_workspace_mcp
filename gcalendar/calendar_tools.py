@@ -17,7 +17,7 @@ from googleapiclient.discovery import build
 
 from auth.service_decorator import require_google_service
 from core.utils import handle_http_errors
-
+from core.logger import get_timestamp_with_microseconds
 from core.server import server
 
 
@@ -362,8 +362,7 @@ async def get_events(
         if formatted_time_min:
             effective_time_min = formatted_time_min
         else:
-            utc_now = datetime.datetime.now(datetime.timezone.utc)
-            effective_time_min = utc_now.isoformat().replace("+00:00", "Z")
+            effective_time_min = get_timestamp_with_microseconds()
         if time_min is None:
             logger.info(
                 f"time_min not provided, defaulting to current UTC time: {effective_time_min}"

@@ -12,7 +12,7 @@ import logging
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Global logger instances (lazy initialization)
 info_logger = None
@@ -22,6 +22,21 @@ debug_logger = None
 # Environment variables
 debug_mode = os.getenv("DEBUG_MODE", "false").lower() == "true"
 log_folder = "logs"
+
+# ISO 8601 UTC with microsecond precision (same shape as JsonFormatter timestamps)
+_TIMESTAMP_FMT = "%Y-%m-%dT%H:%M:%S.%f"
+_TIMESTAMP_SUFFIX = "Z"
+
+
+def get_timestamp_with_microseconds() -> str:
+    """
+    Return current time as ISO 8601 UTC with microsecond precision.
+
+    Use for API parameters (e.g. timeMin/timeMax) or log payloads when exact
+    ordering or RFC3339 format is needed. Matches the format used by this
+    package's JsonFormatter for consistency.
+    """
+    return datetime.now(timezone.utc).strftime(_TIMESTAMP_FMT) + _TIMESTAMP_SUFFIX
 
 
 class JsonFormatter(logging.Formatter):

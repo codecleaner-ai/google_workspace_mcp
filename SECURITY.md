@@ -4,7 +4,7 @@
 
 **Please do not report security vulnerabilities through public GitHub issues, discussions, or pull requests.**
 
-Instead, please email us at **taylor@workspacemcp.com**
+Instead, please email us at **<taylor@workspacemcp.com>**
 
 Please include as much of the following information as you can to help us better understand and resolve the issue:
 
@@ -37,7 +37,7 @@ When using this MCP server, please ensure:
 4. Regularly rotate OAuth refresh tokens
 5. Limit OAuth scopes to only what's necessary
 
-For more information on securing your use of the project, see https://workspacemcp.com/privacy
+For more information on securing your use of the project, see <https://workspacemcp.com/privacy>
 
 ## Preferred Languages
 

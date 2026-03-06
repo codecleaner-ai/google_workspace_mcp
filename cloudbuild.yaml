@@ -113,12 +113,14 @@ steps:
 
         # Deploy the image to Cloud Run
         # NOTE: Mapping AUTH_TOKEN secret to GOOGLE_MCP_SERVER_API_KEY env var as expected by api_key_middleware.py
+        # --min-instances: Configurable via _MIN_INSTANCES (default 0). Use 1 to keep one instance warm.
         gcloud run deploy $${SERVICE_NAME} \
           --image $${DOCKER_IMAGE_PATH} \
           --project $${PROJECT_ID} \
           --region $${REGION} \
           --platform managed \
           --no-allow-unauthenticated \
+          --min-instances=${_MIN_INSTANCES} \
           --service-account "$${RUNTIME_SA_EMAIL}" \
           --set-secrets="GOOGLE_MCP_SERVER_API_KEY=$${AUTH_TOKEN_SECRET_NAME}:latest,GOOGLE_OAUTH_CLIENT_ID=$${CLIENT_ID_SECRET}:latest,GOOGLE_OAUTH_CLIENT_SECRET=$${CLIENT_SECRET_SECRET}:latest,GOOGLE_OAUTH_REDIRECT_URI=$${REDIRECT_URI_SECRET}:latest" \
           --set-env-vars="$${DEBUG_ENV_VAR}" \
@@ -158,3 +160,5 @@ substitutions:
   _SERVICE_NAME: "mcp-google-workspace"
   _API_VERSION: "v1.5.5" # Default fallback, normally overridden
   _DEBUG_MODE: "false"
+  # Min instances: default 0 = scale to zero (avoids cost in QA). Use --min-instances=1 to keep one instance warm.
+  _MIN_INSTANCES: "0"
